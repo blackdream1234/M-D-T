@@ -14,6 +14,10 @@ from gsnh_mdt.sat.exact_solver import ExactSATSolver
 from gsnh_mdt.types import LanguageFamily, LiteralPolarity
 
 
+class NonTheoremPathError(RuntimeError):
+    """Raised when theorem_strict mode encounters a non-certified path."""
+
+
 def _enumerate_paths(tree):
     """Enumerate all root-to-leaf paths once.
 
@@ -93,6 +97,28 @@ def _path_sat_structural_horn(path_edges, x, S, family):
 
     raise NotImplementedError
 
+
+def _classify_cnf_fragment(clauses):
+    is_horn = True
+    is_antihorn = True
+    is_2cnf = True
+    for clause in clauses:
+        n_pos = sum(1 for _, s in clause if s)
+        n_neg = len(clause) - n_pos
+        if n_pos > 1:
+            is_horn = False
+        if n_neg > 1:
+            is_antihorn = False
+        if len(clause) > 2:
+            is_2cnf = False
+    if is_horn:
+        return "horn"
+    if is_antihorn:
+        return "antihorn"
+    if is_2cnf:
+        return "2cnf"
+    return "none"
+
 def _is_sat_path(tree, path_edges, x, S):
     """
     Route to correct SAT checker.
@@ -106,15 +132,21 @@ def _is_sat_path(tree, path_edges, x, S):
 
     if fams == {LanguageFamily.HORN}:
         tree.explainer_backend_ = "structural_horn"
+        tree.theorem_certified_ = True
+        tree.path_certificate_ = "horn"
         return _path_sat_structural_horn(path_edges, x, S, LanguageFamily.HORN)
 
     if fams == {LanguageFamily.ANTI_HORN}:
         tree.explainer_backend_ = "structural_antihorn"
+        tree.theorem_certified_ = True
+        tree.path_certificate_ = "antihorn"
         return _path_sat_structural_horn(path_edges, x, S, LanguageFamily.ANTI_HORN)
 
     # Affine-only path
     if path_edges and all(pred.is_xor for pred, _ in path_edges):
         tree.explainer_backend_ = "affine"
+        tree.theorem_certified_ = False
+        tree.path_certificate_ = "none"
         return _affine_path_sat(path_edges, x, S)
 
     # fallback for empirical families (ConjUI, Square2CNF, BEST_PER_NODE, etc)
@@ -123,6 +155,12 @@ def _is_sat_path(tree, path_edges, x, S):
             tree.explainer_backend_ = "prototype_case_split"
         else:
             tree.explainer_backend_ = "interval_dfs_fallback"
+    tree.path_certificate_ = "none"
+    tree.theorem_certified_ = False
+    if getattr(tree, "theorem_strict", False):
+        tree.explainer_backend_ = "rejected_non_theorem"
+        tree.non_theorem_reason_ = "path not certifiable as horn/antihorn/2cnf"
+        raise NonTheoremPathError(tree.non_theorem_reason_)
 
     if not _path_sat_numeric(path_edges, x, S):
         return False

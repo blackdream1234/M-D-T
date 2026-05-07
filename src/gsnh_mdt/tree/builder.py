@@ -95,7 +95,9 @@ class ExpertGSNHTree:
                  use_binary_comparisons: bool = False,
                  enable_compare_literals: bool = False,
                  prune: bool = False,
-                 prune_alpha: float = 0.01):
+                 prune_alpha: float = 0.01,
+                 random_state: int = 42,
+                 theorem_strict: bool = False):
 
         self.stopping = stopping_criteria or StoppingCriteria()
         self.n_bins = n_bins
@@ -121,6 +123,8 @@ class ExpertGSNHTree:
         self.enable_compare_literals = enable_compare_literals
         self.prune = prune
         self.prune_alpha = prune_alpha
+        self.random_state = random_state
+        self.theorem_strict = theorem_strict
 
         self.root_ = None
         self.binner_ = None
@@ -214,7 +218,9 @@ class ExpertGSNHTree:
         # If pruning enabled, hold out validation data
         if self.prune and len(X) >= 500:
             from sklearn.model_selection import StratifiedShuffleSplit
-            sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+            sss = StratifiedShuffleSplit(
+                n_splits=1, test_size=0.2, random_state=self.random_state
+            )
             tr_idx, val_idx = next(sss.split(X, y))
             X_train, X_val = X[tr_idx], X[val_idx]
             y_train, y_val = y[tr_idx], y[val_idx]
@@ -343,7 +349,7 @@ class ExpertGSNHTree:
         
         # Also include random features (hidden gems)
         if d > top_k_int:
-            np.random.seed(42)
+            np.random.seed(self.random_state)
             remaining = np.setdiff1d(np.arange(d), top_idx)
             n_random = min(len(remaining), max(10, top_k_int // 3))
             random_idx = np.random.choice(remaining, n_random, replace=False)

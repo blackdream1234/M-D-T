@@ -47,13 +47,13 @@ def add_structural_order_clauses(encoding: ThresholdEncoding):
         # For t1 < t2, B(f, t2) => B(f, t1)
         # which is ¬B(f, t2) ∨ B(f, t1)
         for i in range(len(sorted_t) - 1):
-            t1 = sorted_t[i]
-            t2 = sorted_t[i+1]
-            var_t1 = encoding.atom_to_var[(f, t1)]
-            var_t2 = encoding.atom_to_var[(f, t2)]
-            
-            clause = [(var_t2, False), (var_t1, True)]
-            encoding.clauses.append(clause)
+            for j in range(i + 1, len(sorted_t)):
+                t1 = sorted_t[i]
+                t2 = sorted_t[j]
+                var_t1 = encoding.atom_to_var[(f, t1)]
+                var_t2 = encoding.atom_to_var[(f, t2)]
+                clause = [(var_t2, False), (var_t1, True)]
+                encoding.clauses.append(clause)
 
 def add_fixed_assignment_clauses(encoding: ThresholdEncoding, x, S: set):
     for f in S:
@@ -109,3 +109,20 @@ def encode_antihorn_path(path_edges: list, x, S: set) -> List[List[Tuple[int, bo
     add_structural_order_clauses(encoding)
     add_fixed_assignment_clauses(encoding, x, S)
     return encoding.clauses
+
+
+def build_ordered_selected_path_cnf(path_edges: list, x, selected_features: set):
+    """Build ordered selected-path CNF: selected units + order + path clauses."""
+    enc = ThresholdEncoding(atom_to_var={}, var_to_atom=[], clauses=[])
+    for pred, branch in path_edges:
+        if not hasattr(pred, "literals"):
+            return []
+        if branch:
+            clause = [encode_literal(lit, enc) for lit in pred.literals]
+            enc.clauses.append(clause)
+        else:
+            for lit in pred.literals:
+                enc.clauses.append([negate_encoded_lit(encode_literal(lit, enc))])
+    add_structural_order_clauses(enc)
+    add_fixed_assignment_clauses(enc, x, selected_features)
+    return enc.clauses
