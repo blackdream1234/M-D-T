@@ -1,0 +1,866 @@
+DIGEST 5e20f1151915476e44e4d1848f019ef2
+FGSNH_Threshold_AXp
+R1150:1166 Coq.QArith.QArith <> <> lib
+R1184:1197 Coq.Lists.List <> <> lib
+R1215:1227 Coq.Bool.Bool <> <> lib
+R1245:1262 Coq.Arith.PeanoNat <> <> lib
+R1273:1285 Coq.Lists.List ListNotations <> mod
+def 1535:1541 <> Feature
+R1546:1548 Coq.Init.Datatypes <> nat ind
+def 1562:1570 <> Threshold
+R1575:1575 Coq.QArith.QArith_base <> Q rec
+def 1590:1593 <> Atom
+R1606:1608 Coq.Init.Datatypes <> ::type_scope:x_'*'_x not
+R1599:1605 GSNH_Threshold_AXp <> Feature def
+R1609:1617 GSNH_Threshold_AXp <> Threshold def
+def 1637:1645 <> Valuation
+R1657:1660 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R1650:1656 GSNH_Threshold_AXp <> Feature def
+R1661:1661 Coq.QArith.QArith_base <> Q rec
+ind 1675:1682 <> Polarity
+constr 1696:1697 <> GE
+constr 1701:1702 <> LT
+scheme 1675:1682 <> Polarity_rect
+scheme 1675:1682 <> Polarity_ind
+scheme 1675:1682 <> Polarity_rec
+scheme 1675:1682 <> Polarity_sind
+rec 1713:1719 <> Literal
+proj 1745:1755 <> lit_feature
+proj 1770:1782 <> lit_threshold
+proj 1799:1810 <> lit_polarity
+R1759:1765 GSNH_Threshold_AXp <> Feature def
+R1786:1794 GSNH_Threshold_AXp <> Threshold def
+R1814:1821 GSNH_Threshold_AXp <> Polarity ind
+def 1838:1847 <> atom_evalb
+R1854:1862 GSNH_Threshold_AXp <> Valuation def
+binder 1850:1850 <> x:7
+R1870:1873 GSNH_Threshold_AXp <> Atom def
+binder 1866:1866 <> a:8
+R1878:1881 Coq.Init.Datatypes <> bool ind
+R1902:1902 GSNH_Threshold_AXp <> a:8 var
+R1893:1893 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R1895:1895 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R1897:1897 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R1907:1914 Coq.QArith.QArith_base <> Qle_bool def
+R1919:1919 GSNH_Threshold_AXp <> x:7 var
+def 1937:1945 <> lit_evalb
+R1952:1960 GSNH_Threshold_AXp <> Valuation def
+binder 1948:1948 <> x:10
+R1968:1974 GSNH_Threshold_AXp <> Literal rec
+binder 1964:1964 <> l:11
+R1979:1982 Coq.Init.Datatypes <> bool ind
+R1998:2009 GSNH_Threshold_AXp <> lit_polarity proj
+R1995:1995 GSNH_Threshold_AXp <> l:11 var
+R2021:2022 GSNH_Threshold_AXp <> GE constr
+R2027:2034 Coq.QArith.QArith_base <> Qle_bool def
+R2039:2051 GSNH_Threshold_AXp <> lit_threshold proj
+R2036:2036 GSNH_Threshold_AXp <> l:11 var
+R2055:2055 GSNH_Threshold_AXp <> x:10 var
+R2060:2070 GSNH_Threshold_AXp <> lit_feature proj
+R2057:2057 GSNH_Threshold_AXp <> l:11 var
+R2078:2079 GSNH_Threshold_AXp <> LT constr
+R2084:2087 Coq.Init.Datatypes <> negb def
+R2090:2097 Coq.QArith.QArith_base <> Qle_bool def
+R2102:2114 GSNH_Threshold_AXp <> lit_threshold proj
+R2099:2099 GSNH_Threshold_AXp <> l:11 var
+R2118:2118 GSNH_Threshold_AXp <> x:10 var
+R2123:2133 GSNH_Threshold_AXp <> lit_feature proj
+R2120:2120 GSNH_Threshold_AXp <> l:11 var
+rec 2368:2377 <> SignedAtom
+proj 2406:2412 <> sa_atom
+proj 2424:2434 <> sa_positive
+R2416:2419 GSNH_Threshold_AXp <> Atom def
+R2438:2441 Coq.Init.Datatypes <> bool ind
+def 2458:2467 <> Assignment
+R2476:2479 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R2472:2475 GSNH_Threshold_AXp <> Atom def
+R2480:2483 Coq.Init.Datatypes <> bool ind
+def 2498:2509 <> signed_evalb
+R2518:2527 GSNH_Threshold_AXp <> Assignment def
+binder 2512:2514 <> rho:15
+R2535:2544 GSNH_Threshold_AXp <> SignedAtom rec
+binder 2531:2531 <> s:16
+R2549:2552 Coq.Init.Datatypes <> bool ind
+R2565:2575 GSNH_Threshold_AXp <> sa_positive proj
+R2562:2562 GSNH_Threshold_AXp <> s:16 var
+R2608:2611 Coq.Init.Datatypes <> negb def
+R2614:2616 GSNH_Threshold_AXp <> rho:15 var
+R2621:2627 GSNH_Threshold_AXp <> sa_atom proj
+R2618:2618 GSNH_Threshold_AXp <> s:16 var
+R2585:2587 GSNH_Threshold_AXp <> rho:15 var
+R2592:2598 GSNH_Threshold_AXp <> sa_atom proj
+R2589:2589 GSNH_Threshold_AXp <> s:16 var
+def 2644:2661 <> induced_assignment
+R2668:2676 GSNH_Threshold_AXp <> Valuation def
+binder 2664:2664 <> x:17
+R2681:2690 GSNH_Threshold_AXp <> Assignment def
+binder 2701:2701 <> a:18
+R2706:2715 GSNH_Threshold_AXp <> atom_evalb def
+R2717:2717 GSNH_Threshold_AXp <> x:17 var
+R2719:2719 GSNH_Threshold_AXp <> a:18 var
+def 2734:2747 <> encode_literal
+R2754:2760 GSNH_Threshold_AXp <> Literal rec
+binder 2750:2750 <> l:19
+R2765:2774 GSNH_Threshold_AXp <> SignedAtom rec
+R2781:2792 GSNH_Threshold_AXp <> mkSignedAtom constr
+R2798:2798 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R2814:2815 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R2833:2833 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R2802:2812 GSNH_Threshold_AXp <> lit_feature proj
+R2799:2799 GSNH_Threshold_AXp <> l:19 var
+R2819:2831 GSNH_Threshold_AXp <> lit_threshold proj
+R2816:2816 GSNH_Threshold_AXp <> l:19 var
+R2849:2860 GSNH_Threshold_AXp <> lit_polarity proj
+R2846:2846 GSNH_Threshold_AXp <> l:19 var
+R2875:2876 GSNH_Threshold_AXp <> GE constr
+R2881:2884 Coq.Init.Datatypes <> true constr
+R2893:2894 GSNH_Threshold_AXp <> LT constr
+R2899:2903 Coq.Init.Datatypes <> false constr
+def 2928:2940 <> negate_signed
+R2947:2956 GSNH_Threshold_AXp <> SignedAtom rec
+binder 2943:2943 <> s:20
+R2961:2970 GSNH_Threshold_AXp <> SignedAtom rec
+R2977:2988 GSNH_Threshold_AXp <> mkSignedAtom constr
+R2993:2999 GSNH_Threshold_AXp <> sa_atom proj
+R2990:2990 GSNH_Threshold_AXp <> s:20 var
+R3003:3006 Coq.Init.Datatypes <> negb def
+R3011:3021 GSNH_Threshold_AXp <> sa_positive proj
+R3008:3008 GSNH_Threshold_AXp <> s:20 var
+prf 3033:3054 <> encode_literal_correct
+R3072:3080 GSNH_Threshold_AXp <> Valuation def
+binder 3068:3068 <> x:21
+R3088:3094 GSNH_Threshold_AXp <> Literal rec
+binder 3084:3084 <> l:22
+R3156:3162 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R3102:3113 GSNH_Threshold_AXp <> signed_evalb def
+R3116:3133 GSNH_Threshold_AXp <> induced_assignment def
+R3135:3135 GSNH_Threshold_AXp <> x:21 var
+R3139:3152 GSNH_Threshold_AXp <> encode_literal def
+R3154:3154 GSNH_Threshold_AXp <> l:22 var
+R3163:3171 GSNH_Threshold_AXp <> lit_evalb def
+R3173:3173 GSNH_Threshold_AXp <> x:21 var
+R3175:3175 GSNH_Threshold_AXp <> l:22 var
+prf 3263:3283 <> negate_signed_correct
+R3303:3312 GSNH_Threshold_AXp <> Assignment def
+binder 3297:3299 <> rho:23
+R3320:3329 GSNH_Threshold_AXp <> SignedAtom rec
+binder 3316:3316 <> s:24
+R3371:3377 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R3337:3348 GSNH_Threshold_AXp <> signed_evalb def
+R3350:3352 GSNH_Threshold_AXp <> rho:23 var
+R3355:3367 GSNH_Threshold_AXp <> negate_signed def
+R3369:3369 GSNH_Threshold_AXp <> s:24 var
+R3378:3381 Coq.Init.Datatypes <> negb def
+R3384:3395 GSNH_Threshold_AXp <> signed_evalb def
+R3397:3399 GSNH_Threshold_AXp <> rho:23 var
+R3401:3401 GSNH_Threshold_AXp <> s:24 var
+R3497:3509 GSNH_Threshold_AXp <> negate_signed def
+R3512:3523 GSNH_Threshold_AXp <> signed_evalb def
+def 3800:3805 <> Clause
+R3810:3813 Coq.Init.Datatypes <> list ind
+R3815:3824 GSNH_Threshold_AXp <> SignedAtom rec
+def 3838:3840 <> CNF
+R3845:3848 Coq.Init.Datatypes <> list ind
+R3850:3855 GSNH_Threshold_AXp <> Clause def
+def 3869:3877 <> Predicate
+R3882:3885 Coq.Init.Datatypes <> list ind
+R3887:3893 GSNH_Threshold_AXp <> Literal rec
+def 3908:3919 <> clause_evalb
+R3928:3937 GSNH_Threshold_AXp <> Assignment def
+binder 3922:3924 <> rho:25
+R3945:3950 GSNH_Threshold_AXp <> Clause def
+binder 3941:3941 <> c:26
+R3955:3958 Coq.Init.Datatypes <> bool ind
+R3965:3971 Coq.Lists.List <> existsb def
+R4003:4003 GSNH_Threshold_AXp <> c:26 var
+binder 3978:3978 <> s:27
+R3983:3994 GSNH_Threshold_AXp <> signed_evalb def
+R3996:3998 GSNH_Threshold_AXp <> rho:25 var
+R4000:4000 GSNH_Threshold_AXp <> s:27 var
+def 4018:4026 <> cnf_evalb
+R4035:4044 GSNH_Threshold_AXp <> Assignment def
+binder 4029:4031 <> rho:28
+R4053:4055 GSNH_Threshold_AXp <> CNF def
+binder 4048:4049 <> cs:29
+R4060:4063 Coq.Init.Datatypes <> bool ind
+R4070:4076 Coq.Lists.List <> forallb def
+R4108:4109 GSNH_Threshold_AXp <> cs:29 var
+binder 4083:4083 <> c:30
+R4088:4099 GSNH_Threshold_AXp <> clause_evalb def
+R4101:4103 GSNH_Threshold_AXp <> rho:28 var
+R4105:4105 GSNH_Threshold_AXp <> c:30 var
+def 4124:4133 <> pred_evalb
+R4140:4148 GSNH_Threshold_AXp <> Valuation def
+binder 4136:4136 <> x:31
+R4156:4164 GSNH_Threshold_AXp <> Predicate def
+binder 4152:4152 <> p:32
+R4169:4172 Coq.Init.Datatypes <> bool ind
+R4179:4185 Coq.Lists.List <> existsb def
+R4212:4212 GSNH_Threshold_AXp <> p:32 var
+binder 4192:4192 <> l:33
+R4197:4205 GSNH_Threshold_AXp <> lit_evalb def
+R4207:4207 GSNH_Threshold_AXp <> x:31 var
+R4209:4209 GSNH_Threshold_AXp <> l:33 var
+def 4227:4242 <> pred_false_evalb
+R4249:4257 GSNH_Threshold_AXp <> Valuation def
+binder 4245:4245 <> x:34
+R4265:4273 GSNH_Threshold_AXp <> Predicate def
+binder 4261:4261 <> p:35
+R4278:4281 Coq.Init.Datatypes <> bool ind
+R4288:4294 Coq.Lists.List <> forallb def
+R4328:4328 GSNH_Threshold_AXp <> p:35 var
+binder 4301:4301 <> l:36
+R4306:4309 Coq.Init.Datatypes <> negb def
+R4312:4320 GSNH_Threshold_AXp <> lit_evalb def
+R4322:4322 GSNH_Threshold_AXp <> x:34 var
+R4324:4324 GSNH_Threshold_AXp <> l:36 var
+def 4343:4365 <> pred_true_branch_clause
+R4372:4380 GSNH_Threshold_AXp <> Predicate def
+binder 4368:4368 <> p:37
+R4385:4390 GSNH_Threshold_AXp <> Clause def
+R4397:4399 Coq.Lists.List <> map def
+R4416:4416 GSNH_Threshold_AXp <> p:37 var
+R4401:4414 GSNH_Threshold_AXp <> encode_literal def
+def 4431:4455 <> pred_false_branch_clauses
+R4462:4470 GSNH_Threshold_AXp <> Predicate def
+binder 4458:4458 <> p:38
+R4475:4477 GSNH_Threshold_AXp <> CNF def
+R4484:4486 Coq.Lists.List <> map def
+R4534:4534 GSNH_Threshold_AXp <> p:38 var
+binder 4493:4493 <> l:39
+R4498:4498 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R4531:4531 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R4499:4511 GSNH_Threshold_AXp <> negate_signed def
+R4514:4527 GSNH_Threshold_AXp <> encode_literal def
+R4529:4529 GSNH_Threshold_AXp <> l:39 var
+prf 4544:4564 <> clause_singleton_eval
+R4584:4593 GSNH_Threshold_AXp <> Assignment def
+binder 4578:4580 <> rho:40
+R4601:4610 GSNH_Threshold_AXp <> SignedAtom rec
+binder 4597:4597 <> s:41
+R4638:4640 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R4618:4629 GSNH_Threshold_AXp <> clause_evalb def
+R4631:4633 GSNH_Threshold_AXp <> rho:40 var
+R4635:4635 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R4637:4637 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R4636:4636 GSNH_Threshold_AXp <> s:41 var
+R4641:4652 GSNH_Threshold_AXp <> signed_evalb def
+R4654:4656 GSNH_Threshold_AXp <> rho:40 var
+R4658:4658 GSNH_Threshold_AXp <> s:41 var
+R4693:4704 GSNH_Threshold_AXp <> clause_evalb def
+R4728:4739 GSNH_Threshold_AXp <> signed_evalb def
+R4728:4739 GSNH_Threshold_AXp <> signed_evalb def
+prf 4774:4797 <> pred_true_branch_correct
+R4815:4823 GSNH_Threshold_AXp <> Valuation def
+binder 4811:4811 <> x:42
+R4831:4839 GSNH_Threshold_AXp <> Predicate def
+binder 4827:4827 <> p:43
+R4910:4916 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R4847:4858 GSNH_Threshold_AXp <> clause_evalb def
+R4861:4878 GSNH_Threshold_AXp <> induced_assignment def
+R4880:4880 GSNH_Threshold_AXp <> x:42 var
+R4884:4906 GSNH_Threshold_AXp <> pred_true_branch_clause def
+R4908:4908 GSNH_Threshold_AXp <> p:43 var
+R4917:4926 GSNH_Threshold_AXp <> pred_evalb def
+R4928:4928 GSNH_Threshold_AXp <> x:42 var
+R4930:4930 GSNH_Threshold_AXp <> p:43 var
+R4963:4974 GSNH_Threshold_AXp <> clause_evalb def
+R4977:4999 GSNH_Threshold_AXp <> pred_true_branch_clause def
+R5002:5011 GSNH_Threshold_AXp <> pred_evalb def
+R5084:5105 GSNH_Threshold_AXp <> encode_literal_correct thm
+R5084:5105 GSNH_Threshold_AXp <> encode_literal_correct thm
+R5084:5105 GSNH_Threshold_AXp <> encode_literal_correct thm
+prf 5153:5177 <> pred_false_branch_correct
+R5195:5203 GSNH_Threshold_AXp <> Valuation def
+binder 5191:5191 <> x:44
+R5211:5219 GSNH_Threshold_AXp <> Predicate def
+binder 5207:5207 <> p:45
+R5289:5295 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R5227:5235 GSNH_Threshold_AXp <> cnf_evalb def
+R5238:5255 GSNH_Threshold_AXp <> induced_assignment def
+R5257:5257 GSNH_Threshold_AXp <> x:44 var
+R5261:5285 GSNH_Threshold_AXp <> pred_false_branch_clauses def
+R5287:5287 GSNH_Threshold_AXp <> p:45 var
+R5296:5311 GSNH_Threshold_AXp <> pred_false_evalb def
+R5313:5313 GSNH_Threshold_AXp <> x:44 var
+R5315:5315 GSNH_Threshold_AXp <> p:45 var
+R5450:5474 GSNH_Threshold_AXp <> pred_false_branch_clauses def
+R5477:5492 GSNH_Threshold_AXp <> pred_false_evalb def
+R5573:5581 GSNH_Threshold_AXp <> cnf_evalb def
+R5837:5847 Coq.Bool.Bool <> orb_false_r thm
+R5837:5847 Coq.Bool.Bool <> orb_false_r thm
+R5837:5847 Coq.Bool.Bool <> orb_false_r thm
+R5940:5960 GSNH_Threshold_AXp <> negate_signed_correct thm
+R5940:5960 GSNH_Threshold_AXp <> negate_signed_correct thm
+R5940:5960 GSNH_Threshold_AXp <> negate_signed_correct thm
+R5975:5996 GSNH_Threshold_AXp <> encode_literal_correct thm
+R5975:5996 GSNH_Threshold_AXp <> encode_literal_correct thm
+R5975:5996 GSNH_Threshold_AXp <> encode_literal_correct thm
+R6087:6093 Coq.Lists.List <> forallb def
+R6168:6170 Coq.Lists.List <> map def
+R6182:6188 GSNH_Threshold_AXp <> Literal rec
+binder 6177:6178 <> l0:46
+R6193:6193 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R6227:6227 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R6194:6206 GSNH_Threshold_AXp <> negate_signed def
+R6209:6222 GSNH_Threshold_AXp <> encode_literal def
+R6224:6225 GSNH_Threshold_AXp <> l0:46 var
+R6104:6109 GSNH_Threshold_AXp <> Clause def
+binder 6100:6100 <> c:47
+R6114:6125 GSNH_Threshold_AXp <> clause_evalb def
+R6128:6145 GSNH_Threshold_AXp <> induced_assignment def
+R6150:6150 GSNH_Threshold_AXp <> c:47 var
+R6247:6255 GSNH_Threshold_AXp <> cnf_evalb def
+R6258:6275 GSNH_Threshold_AXp <> induced_assignment def
+R6281:6305 GSNH_Threshold_AXp <> pred_false_branch_clauses def
+R6087:6093 Coq.Lists.List <> forallb def
+R6168:6170 Coq.Lists.List <> map def
+R6182:6188 GSNH_Threshold_AXp <> Literal rec
+binder 6177:6178 <> l0:48
+R6193:6193 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R6227:6227 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R6194:6206 GSNH_Threshold_AXp <> negate_signed def
+R6209:6222 GSNH_Threshold_AXp <> encode_literal def
+R6224:6225 GSNH_Threshold_AXp <> l0:48 var
+R6104:6109 GSNH_Threshold_AXp <> Clause def
+binder 6100:6100 <> c:49
+R6114:6125 GSNH_Threshold_AXp <> clause_evalb def
+R6128:6145 GSNH_Threshold_AXp <> induced_assignment def
+R6150:6150 GSNH_Threshold_AXp <> c:49 var
+R6247:6255 GSNH_Threshold_AXp <> cnf_evalb def
+R6258:6275 GSNH_Threshold_AXp <> induced_assignment def
+R6281:6305 GSNH_Threshold_AXp <> pred_false_branch_clauses def
+def 6624:6627 <> Edge
+R6642:6644 Coq.Init.Datatypes <> ::type_scope:x_'*'_x not
+R6633:6641 GSNH_Threshold_AXp <> Predicate def
+R6645:6648 Coq.Init.Datatypes <> bool ind
+def 6668:6671 <> Path
+R6676:6679 Coq.Init.Datatypes <> list ind
+R6681:6684 GSNH_Threshold_AXp <> Edge def
+def 6699:6708 <> edge_evalb
+R6715:6723 GSNH_Threshold_AXp <> Valuation def
+binder 6711:6711 <> x:50
+R6731:6734 GSNH_Threshold_AXp <> Edge def
+binder 6727:6727 <> e:51
+R6739:6742 Coq.Init.Datatypes <> bool ind
+R6769:6769 GSNH_Threshold_AXp <> e:51 var
+R6754:6754 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R6756:6757 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R6764:6764 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R6815:6830 GSNH_Threshold_AXp <> pred_false_evalb def
+R6832:6832 GSNH_Threshold_AXp <> x:50 var
+R6793:6802 GSNH_Threshold_AXp <> pred_evalb def
+R6804:6804 GSNH_Threshold_AXp <> x:50 var
+def 6849:6860 <> edge_clauses
+R6867:6870 GSNH_Threshold_AXp <> Edge def
+binder 6863:6863 <> e:53
+R6875:6877 GSNH_Threshold_AXp <> CNF def
+R6904:6904 GSNH_Threshold_AXp <> e:53 var
+R6889:6889 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R6891:6892 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R6899:6899 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R6963:6987 GSNH_Threshold_AXp <> pred_false_branch_clauses def
+R6928:6928 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R6954:6954 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R6929:6951 GSNH_Threshold_AXp <> pred_true_branch_clause def
+def 7002:7011 <> path_evalb
+R7018:7026 GSNH_Threshold_AXp <> Valuation def
+binder 7014:7014 <> x:55
+R7037:7040 GSNH_Threshold_AXp <> Path def
+binder 7030:7033 <> path:56
+R7045:7048 Coq.Init.Datatypes <> bool ind
+R7061:7064 GSNH_Threshold_AXp <> path:56 var
+R7075:7076 Coq.Lists.List ListNotations ::list_scope:'['_']' not
+R7081:7084 Coq.Init.Datatypes <> true constr
+R7091:7094 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R7101:7104 Coq.Init.Datatypes <> andb def
+R7124:7133 GSNH_Threshold_AXp <> path_evalb:57 def
+R7135:7135 GSNH_Threshold_AXp <> x:55 var
+R7107:7116 GSNH_Threshold_AXp <> edge_evalb def
+R7118:7118 GSNH_Threshold_AXp <> x:55 var
+def 7158:7169 <> path_clauses
+R7179:7182 GSNH_Threshold_AXp <> Path def
+binder 7172:7175 <> path:59
+R7187:7189 GSNH_Threshold_AXp <> CNF def
+R7202:7205 GSNH_Threshold_AXp <> path:59 var
+R7216:7217 Coq.Lists.List ListNotations ::list_scope:'['_']' not
+R7222:7223 Coq.Lists.List ListNotations ::list_scope:'['_']' not
+R7230:7233 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R7254:7257 Coq.Init.Datatypes <> ::list_scope:x_'++'_x not
+R7240:7251 GSNH_Threshold_AXp <> edge_clauses def
+R7258:7269 GSNH_Threshold_AXp <> path_clauses:60 def
+prf 7288:7300 <> cnf_evalb_app
+R7320:7329 GSNH_Threshold_AXp <> Assignment def
+binder 7314:7316 <> rho:62
+R7339:7341 GSNH_Threshold_AXp <> CNF def
+binder 7333:7333 <> a:63
+binder 7335:7335 <> b:64
+R7371:7377 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R7349:7357 GSNH_Threshold_AXp <> cnf_evalb def
+R7359:7361 GSNH_Threshold_AXp <> rho:62 var
+R7365:7368 Coq.Init.Datatypes <> ::list_scope:x_'++'_x not
+R7364:7364 GSNH_Threshold_AXp <> a:63 var
+R7369:7369 GSNH_Threshold_AXp <> b:64 var
+R7378:7381 Coq.Init.Datatypes <> andb def
+R7402:7410 GSNH_Threshold_AXp <> cnf_evalb def
+R7412:7414 GSNH_Threshold_AXp <> rho:62 var
+R7416:7416 GSNH_Threshold_AXp <> b:64 var
+R7384:7392 GSNH_Threshold_AXp <> cnf_evalb def
+R7394:7396 GSNH_Threshold_AXp <> rho:62 var
+R7398:7398 GSNH_Threshold_AXp <> a:63 var
+R7454:7462 GSNH_Threshold_AXp <> cnf_evalb def
+R7473:7483 Coq.Lists.List <> forallb_app thm
+R7473:7483 Coq.Lists.List <> forallb_app thm
+prf 7498:7518 <> edge_encoding_correct
+R7536:7544 GSNH_Threshold_AXp <> Valuation def
+binder 7532:7532 <> x:65
+R7552:7555 GSNH_Threshold_AXp <> Edge def
+binder 7548:7548 <> e:66
+R7612:7618 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R7563:7571 GSNH_Threshold_AXp <> cnf_evalb def
+R7574:7591 GSNH_Threshold_AXp <> induced_assignment def
+R7593:7593 GSNH_Threshold_AXp <> x:65 var
+R7597:7608 GSNH_Threshold_AXp <> edge_clauses def
+R7610:7610 GSNH_Threshold_AXp <> e:66 var
+R7619:7628 GSNH_Threshold_AXp <> edge_evalb def
+R7630:7630 GSNH_Threshold_AXp <> x:65 var
+R7632:7632 GSNH_Threshold_AXp <> e:66 var
+R7721:7729 GSNH_Threshold_AXp <> cnf_evalb def
+R7751:7761 Coq.Bool.Bool <> andb_true_r thm
+R7751:7761 Coq.Bool.Bool <> andb_true_r thm
+R7751:7761 Coq.Bool.Bool <> andb_true_r thm
+R7774:7797 GSNH_Threshold_AXp <> pred_true_branch_correct thm
+R7774:7797 GSNH_Threshold_AXp <> pred_true_branch_correct thm
+R7817:7841 GSNH_Threshold_AXp <> pred_false_branch_correct thm
+R7817:7841 GSNH_Threshold_AXp <> pred_false_branch_correct thm
+prf 7858:7878 <> path_encoding_correct
+R7896:7904 GSNH_Threshold_AXp <> Valuation def
+binder 7892:7892 <> x:67
+R7915:7918 GSNH_Threshold_AXp <> Path def
+binder 7908:7911 <> path:68
+R7978:7984 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R7926:7934 GSNH_Threshold_AXp <> cnf_evalb def
+R7937:7954 GSNH_Threshold_AXp <> induced_assignment def
+R7956:7956 GSNH_Threshold_AXp <> x:67 var
+R7960:7971 GSNH_Threshold_AXp <> path_clauses def
+R7973:7976 GSNH_Threshold_AXp <> path:68 var
+R7985:7994 GSNH_Threshold_AXp <> path_evalb def
+R7996:7996 GSNH_Threshold_AXp <> x:67 var
+R7998:8001 GSNH_Threshold_AXp <> path:68 var
+R8101:8113 GSNH_Threshold_AXp <> cnf_evalb_app thm
+R8101:8113 GSNH_Threshold_AXp <> cnf_evalb_app thm
+R8101:8113 GSNH_Threshold_AXp <> cnf_evalb_app thm
+R8128:8148 GSNH_Threshold_AXp <> edge_encoding_correct thm
+R8128:8148 GSNH_Threshold_AXp <> edge_encoding_correct thm
+R8128:8148 GSNH_Threshold_AXp <> edge_encoding_correct thm
+def 8416:8438 <> structural_order_clause
+R8456:8462 GSNH_Threshold_AXp <> Feature def
+binder 8452:8452 <> f:69
+R8474:8482 GSNH_Threshold_AXp <> Threshold def
+binder 8466:8467 <> t1:70
+binder 8469:8470 <> t2:71
+R8487:8492 GSNH_Threshold_AXp <> Clause def
+R8499:8504 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R8530:8535 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R8560:8563 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R8505:8516 GSNH_Threshold_AXp <> mkSignedAtom constr
+R8518:8518 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R8520:8520 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R8523:8523 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R8519:8519 GSNH_Threshold_AXp <> f:69 var
+R8521:8522 GSNH_Threshold_AXp <> t2:71 var
+R8525:8529 Coq.Init.Datatypes <> false constr
+R8536:8547 GSNH_Threshold_AXp <> mkSignedAtom constr
+R8549:8549 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R8551:8551 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R8554:8554 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R8550:8550 GSNH_Threshold_AXp <> f:69 var
+R8552:8553 GSNH_Threshold_AXp <> t1:70 var
+R8556:8559 Coq.Init.Datatypes <> true constr
+prf 8575:8603 <> structural_order_clause_sound
+R8621:8629 GSNH_Threshold_AXp <> Valuation def
+binder 8617:8617 <> x:72
+R8637:8643 GSNH_Threshold_AXp <> Feature def
+binder 8633:8633 <> f:73
+R8655:8663 GSNH_Threshold_AXp <> Threshold def
+binder 8647:8648 <> t1:74
+binder 8650:8651 <> t2:75
+R8683:8690 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R8674:8677 Coq.QArith.QArith_base <> ::Q_scope:x_'<='_x not
+R8672:8673 GSNH_Threshold_AXp <> t1:74 var
+R8678:8679 GSNH_Threshold_AXp <> t2:75 var
+R8777:8779 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R8691:8702 GSNH_Threshold_AXp <> clause_evalb def
+R8705:8722 GSNH_Threshold_AXp <> induced_assignment def
+R8724:8724 GSNH_Threshold_AXp <> x:72 var
+R8745:8767 GSNH_Threshold_AXp <> structural_order_clause def
+R8769:8769 GSNH_Threshold_AXp <> f:73 var
+R8771:8772 GSNH_Threshold_AXp <> t1:74 var
+R8774:8775 GSNH_Threshold_AXp <> t2:75 var
+R8780:8783 Coq.Init.Datatypes <> true constr
+R8826:8848 GSNH_Threshold_AXp <> structural_order_clause def
+R8860:8871 GSNH_Threshold_AXp <> clause_evalb def
+R8892:8903 GSNH_Threshold_AXp <> signed_evalb def
+R8915:8932 GSNH_Threshold_AXp <> induced_assignment def
+R8944:8953 GSNH_Threshold_AXp <> atom_evalb def
+R8977:8984 Coq.QArith.QArith_base <> Qle_bool def
+R8977:8984 Coq.QArith.QArith_base <> Qle_bool def
+R9044:9046 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R9027:9034 Coq.QArith.QArith_base <> Qle_bool def
+R9047:9050 Coq.Init.Datatypes <> true constr
+R9044:9046 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R9027:9034 Coq.QArith.QArith_base <> Qle_bool def
+R9047:9050 Coq.Init.Datatypes <> true constr
+R9078:9089 Coq.QArith.QArith_base <> Qle_bool_iff thm
+R9078:9089 Coq.QArith.QArith_base <> Qle_bool_iff thm
+R9104:9115 Coq.QArith.QArith_base <> Qle_bool_iff thm
+R9104:9115 Coq.QArith.QArith_base <> Qle_bool_iff thm
+R9137:9145 Coq.QArith.QArith_base <> Qle_trans thm
+R9137:9145 Coq.QArith.QArith_base <> Qle_trans thm
+def 9471:9486 <> count_signed_pos
+R9493:9498 GSNH_Threshold_AXp <> Clause def
+binder 9489:9489 <> c:76
+R9503:9505 Coq.Init.Datatypes <> nat ind
+R9518:9518 GSNH_Threshold_AXp <> c:76 var
+R9529:9530 Coq.Lists.List ListNotations ::list_scope:'['_']' not
+R9546:9549 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R9563:9563 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R9604:9614 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R9570:9580 GSNH_Threshold_AXp <> sa_positive proj
+R9615:9630 GSNH_Threshold_AXp <> count_signed_pos:77 def
+def 9657:9672 <> count_signed_neg
+R9679:9684 GSNH_Threshold_AXp <> Clause def
+binder 9675:9675 <> c:79
+R9689:9691 Coq.Init.Datatypes <> nat ind
+R9704:9704 GSNH_Threshold_AXp <> c:79 var
+R9715:9716 Coq.Lists.List ListNotations ::list_scope:'['_']' not
+R9732:9735 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R9749:9749 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R9790:9800 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R9756:9766 GSNH_Threshold_AXp <> sa_positive proj
+R9801:9816 GSNH_Threshold_AXp <> count_signed_neg:80 def
+def 9845:9858 <> is_horn_clause
+R9865:9870 GSNH_Threshold_AXp <> Clause def
+binder 9861:9861 <> c:82
+R9875:9878 Coq.Init.Datatypes <> bool ind
+R9885:9891 Coq.Arith.PeanoNat Nat leb def
+R9894:9909 GSNH_Threshold_AXp <> count_signed_pos def
+R9911:9911 GSNH_Threshold_AXp <> c:82 var
+def 9929:9946 <> is_antihorn_clause
+R9953:9958 GSNH_Threshold_AXp <> Clause def
+binder 9949:9949 <> c:83
+R9963:9966 Coq.Init.Datatypes <> bool ind
+R9973:9979 Coq.Arith.PeanoNat Nat leb def
+R9982:9997 GSNH_Threshold_AXp <> count_signed_neg def
+R9999:9999 GSNH_Threshold_AXp <> c:83 var
+prf 10014:10044 <> structural_order_clause_is_horn
+R10062:10068 GSNH_Threshold_AXp <> Feature def
+binder 10058:10058 <> f:84
+R10080:10088 GSNH_Threshold_AXp <> Threshold def
+binder 10072:10073 <> t1:85
+binder 10075:10076 <> t2:86
+R10144:10146 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R10096:10109 GSNH_Threshold_AXp <> is_horn_clause def
+R10112:10134 GSNH_Threshold_AXp <> structural_order_clause def
+R10136:10136 GSNH_Threshold_AXp <> f:84 var
+R10138:10139 GSNH_Threshold_AXp <> t1:85 var
+R10141:10142 GSNH_Threshold_AXp <> t2:86 var
+R10147:10150 Coq.Init.Datatypes <> true constr
+R10187:10200 GSNH_Threshold_AXp <> is_horn_clause def
+R10212:10234 GSNH_Threshold_AXp <> structural_order_clause def
+prf 10275:10309 <> structural_order_clause_is_antihorn
+R10327:10333 GSNH_Threshold_AXp <> Feature def
+binder 10323:10323 <> f:87
+R10345:10353 GSNH_Threshold_AXp <> Threshold def
+binder 10337:10338 <> t1:88
+binder 10340:10341 <> t2:89
+R10413:10415 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R10361:10378 GSNH_Threshold_AXp <> is_antihorn_clause def
+R10381:10403 GSNH_Threshold_AXp <> structural_order_clause def
+R10405:10405 GSNH_Threshold_AXp <> f:87 var
+R10407:10408 GSNH_Threshold_AXp <> t1:88 var
+R10410:10411 GSNH_Threshold_AXp <> t2:89 var
+R10416:10419 Coq.Init.Datatypes <> true constr
+R10456:10473 GSNH_Threshold_AXp <> is_antihorn_clause def
+R10485:10507 GSNH_Threshold_AXp <> structural_order_clause def
+def 10549:10565 <> count_ge_literals
+R10572:10580 GSNH_Threshold_AXp <> Predicate def
+binder 10568:10568 <> p:90
+R10585:10587 Coq.Init.Datatypes <> nat ind
+R10600:10600 GSNH_Threshold_AXp <> p:90 var
+R10611:10612 Coq.Lists.List ListNotations ::list_scope:'['_']' not
+R10628:10631 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R10645:10645 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R10729:10739 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R10655:10666 GSNH_Threshold_AXp <> lit_polarity proj
+R10684:10685 GSNH_Threshold_AXp <> GE constr
+R10706:10707 GSNH_Threshold_AXp <> LT constr
+R10740:10756 GSNH_Threshold_AXp <> count_ge_literals:91 def
+def 10783:10799 <> count_lt_literals
+R10806:10814 GSNH_Threshold_AXp <> Predicate def
+binder 10802:10802 <> p:93
+R10819:10821 Coq.Init.Datatypes <> nat ind
+R10834:10834 GSNH_Threshold_AXp <> p:93 var
+R10845:10846 Coq.Lists.List ListNotations ::list_scope:'['_']' not
+R10862:10865 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R10879:10879 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R10963:10973 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R10889:10900 GSNH_Threshold_AXp <> lit_polarity proj
+R10918:10919 GSNH_Threshold_AXp <> GE constr
+R10940:10941 GSNH_Threshold_AXp <> LT constr
+R10974:10990 GSNH_Threshold_AXp <> count_lt_literals:94 def
+def 11019:11035 <> is_horn_predicate
+R11042:11050 GSNH_Threshold_AXp <> Predicate def
+binder 11038:11038 <> p:96
+R11055:11058 Coq.Init.Datatypes <> bool ind
+R11065:11071 Coq.Arith.PeanoNat Nat leb def
+R11074:11090 GSNH_Threshold_AXp <> count_ge_literals def
+R11092:11092 GSNH_Threshold_AXp <> p:96 var
+def 11110:11130 <> is_antihorn_predicate
+R11137:11145 GSNH_Threshold_AXp <> Predicate def
+binder 11133:11133 <> p:97
+R11150:11153 Coq.Init.Datatypes <> bool ind
+R11160:11166 Coq.Arith.PeanoNat Nat leb def
+R11169:11185 GSNH_Threshold_AXp <> count_lt_literals def
+R11187:11187 GSNH_Threshold_AXp <> p:97 var
+prf 11200:11216 <> count_pos_encoded
+R11234:11242 GSNH_Threshold_AXp <> Predicate def
+binder 11230:11230 <> p:98
+R11294:11300 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R11250:11265 GSNH_Threshold_AXp <> count_signed_pos def
+R11268:11290 GSNH_Threshold_AXp <> pred_true_branch_clause def
+R11292:11292 GSNH_Threshold_AXp <> p:98 var
+R11301:11317 GSNH_Threshold_AXp <> count_ge_literals def
+R11319:11319 GSNH_Threshold_AXp <> p:98 var
+R11350:11372 GSNH_Threshold_AXp <> pred_true_branch_clause def
+prf 11513:11529 <> count_neg_encoded
+R11547:11555 GSNH_Threshold_AXp <> Predicate def
+binder 11543:11543 <> p:99
+R11607:11613 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R11563:11578 GSNH_Threshold_AXp <> count_signed_neg def
+R11581:11603 GSNH_Threshold_AXp <> pred_true_branch_clause def
+R11605:11605 GSNH_Threshold_AXp <> p:99 var
+R11614:11630 GSNH_Threshold_AXp <> count_lt_literals def
+R11632:11632 GSNH_Threshold_AXp <> p:99 var
+R11663:11685 GSNH_Threshold_AXp <> pred_true_branch_clause def
+prf 11828:11861 <> horn_predicate_true_branch_is_horn
+R11879:11887 GSNH_Threshold_AXp <> Predicate def
+binder 11875:11875 <> p:100
+R11921:11928 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R11914:11916 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R11895:11911 GSNH_Threshold_AXp <> is_horn_predicate def
+R11913:11913 GSNH_Threshold_AXp <> p:100 var
+R11917:11920 Coq.Init.Datatypes <> true constr
+R11971:11973 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R11929:11942 GSNH_Threshold_AXp <> is_horn_clause def
+R11945:11967 GSNH_Threshold_AXp <> pred_true_branch_clause def
+R11969:11969 GSNH_Threshold_AXp <> p:100 var
+R11974:11977 Coq.Init.Datatypes <> true constr
+R12010:12026 GSNH_Threshold_AXp <> is_horn_predicate def
+R12043:12056 GSNH_Threshold_AXp <> is_horn_clause def
+R12069:12085 GSNH_Threshold_AXp <> count_pos_encoded thm
+R12069:12085 GSNH_Threshold_AXp <> count_pos_encoded thm
+R12069:12085 GSNH_Threshold_AXp <> count_pos_encoded thm
+prf 12113:12154 <> antihorn_predicate_true_branch_is_antihorn
+R12172:12180 GSNH_Threshold_AXp <> Predicate def
+binder 12168:12168 <> p:101
+R12218:12225 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R12211:12213 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R12188:12208 GSNH_Threshold_AXp <> is_antihorn_predicate def
+R12210:12210 GSNH_Threshold_AXp <> p:101 var
+R12214:12217 Coq.Init.Datatypes <> true constr
+R12272:12274 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R12226:12243 GSNH_Threshold_AXp <> is_antihorn_clause def
+R12246:12268 GSNH_Threshold_AXp <> pred_true_branch_clause def
+R12270:12270 GSNH_Threshold_AXp <> p:101 var
+R12275:12278 Coq.Init.Datatypes <> true constr
+R12311:12331 GSNH_Threshold_AXp <> is_antihorn_predicate def
+R12348:12365 GSNH_Threshold_AXp <> is_antihorn_clause def
+R12378:12394 GSNH_Threshold_AXp <> count_neg_encoded thm
+R12378:12394 GSNH_Threshold_AXp <> count_neg_encoded thm
+R12378:12394 GSNH_Threshold_AXp <> count_neg_encoded thm
+prf 12420:12443 <> singleton_clause_is_horn
+R12461:12470 GSNH_Threshold_AXp <> SignedAtom rec
+binder 12457:12457 <> s:102
+R12496:12498 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R12478:12491 GSNH_Threshold_AXp <> is_horn_clause def
+R12493:12493 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R12495:12495 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R12494:12494 GSNH_Threshold_AXp <> s:102 var
+R12499:12502 Coq.Init.Datatypes <> true constr
+prf 12590:12617 <> singleton_clause_is_antihorn
+R12635:12644 GSNH_Threshold_AXp <> SignedAtom rec
+binder 12631:12631 <> s:103
+R12674:12676 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R12652:12669 GSNH_Threshold_AXp <> is_antihorn_clause def
+R12671:12671 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R12673:12673 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R12672:12672 GSNH_Threshold_AXp <> s:103 var
+R12677:12680 Coq.Init.Datatypes <> true constr
+def 12773:12788 <> all_horn_clauses
+R12796:12798 GSNH_Threshold_AXp <> CNF def
+binder 12791:12792 <> cs:104
+R12803:12806 Coq.Init.Datatypes <> bool ind
+R12813:12819 Coq.Lists.List <> forallb def
+R12836:12837 GSNH_Threshold_AXp <> cs:104 var
+R12821:12834 GSNH_Threshold_AXp <> is_horn_clause def
+def 12852:12871 <> all_antihorn_clauses
+R12879:12881 GSNH_Threshold_AXp <> CNF def
+binder 12874:12875 <> cs:105
+R12886:12889 Coq.Init.Datatypes <> bool ind
+R12896:12902 Coq.Lists.List <> forallb def
+R12923:12924 GSNH_Threshold_AXp <> cs:105 var
+R12904:12921 GSNH_Threshold_AXp <> is_antihorn_clause def
+prf 12936:12964 <> false_branch_clauses_are_horn
+R12982:12990 GSNH_Threshold_AXp <> Predicate def
+binder 12978:12978 <> p:106
+R13044:13046 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R12998:13013 GSNH_Threshold_AXp <> all_horn_clauses def
+R13016:13040 GSNH_Threshold_AXp <> pred_false_branch_clauses def
+R13042:13042 GSNH_Threshold_AXp <> p:106 var
+R13047:13050 Coq.Init.Datatypes <> true constr
+R13081:13096 GSNH_Threshold_AXp <> all_horn_clauses def
+R13099:13123 GSNH_Threshold_AXp <> pred_false_branch_clauses def
+R13196:13219 GSNH_Threshold_AXp <> singleton_clause_is_horn thm
+R13196:13219 GSNH_Threshold_AXp <> singleton_clause_is_horn thm
+R13196:13219 GSNH_Threshold_AXp <> singleton_clause_is_horn thm
+prf 13257:13289 <> false_branch_clauses_are_antihorn
+R13307:13315 GSNH_Threshold_AXp <> Predicate def
+binder 13303:13303 <> p:107
+R13373:13375 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R13323:13342 GSNH_Threshold_AXp <> all_antihorn_clauses def
+R13345:13369 GSNH_Threshold_AXp <> pred_false_branch_clauses def
+R13371:13371 GSNH_Threshold_AXp <> p:107 var
+R13376:13379 Coq.Init.Datatypes <> true constr
+R13410:13429 GSNH_Threshold_AXp <> all_antihorn_clauses def
+R13432:13456 GSNH_Threshold_AXp <> pred_false_branch_clauses def
+R13529:13556 GSNH_Threshold_AXp <> singleton_clause_is_antihorn thm
+R13529:13556 GSNH_Threshold_AXp <> singleton_clause_is_antihorn thm
+R13529:13556 GSNH_Threshold_AXp <> singleton_clause_is_antihorn thm
+def 13812:13832 <> weak_axp_direct_evalb
+R13850:13858 GSNH_Threshold_AXp <> Valuation def
+binder 13846:13846 <> x:108
+R13879:13882 Coq.Init.Datatypes <> list ind
+R13884:13887 GSNH_Threshold_AXp <> Path def
+binder 13862:13875 <> opposite_paths:109
+R13892:13895 Coq.Init.Datatypes <> bool ind
+R13902:13908 Coq.Lists.List <> forallb def
+R13943:13956 GSNH_Threshold_AXp <> opposite_paths:109 var
+binder 13915:13915 <> p:110
+R13920:13923 Coq.Init.Datatypes <> negb def
+R13926:13935 GSNH_Threshold_AXp <> path_evalb def
+R13937:13937 GSNH_Threshold_AXp <> x:108 var
+R13939:13939 GSNH_Threshold_AXp <> p:110 var
+def 13971:13992 <> weak_axp_encoded_evalb
+R14010:14018 GSNH_Threshold_AXp <> Valuation def
+binder 14006:14006 <> x:111
+R14039:14042 Coq.Init.Datatypes <> list ind
+R14044:14047 GSNH_Threshold_AXp <> Path def
+binder 14022:14035 <> opposite_paths:112
+R14052:14055 Coq.Init.Datatypes <> bool ind
+R14062:14068 Coq.Lists.List <> forallb def
+R14153:14166 GSNH_Threshold_AXp <> opposite_paths:112 var
+binder 14079:14079 <> p:113
+R14091:14094 Coq.Init.Datatypes <> negb def
+R14097:14105 GSNH_Threshold_AXp <> cnf_evalb def
+R14108:14125 GSNH_Threshold_AXp <> induced_assignment def
+R14127:14127 GSNH_Threshold_AXp <> x:111 var
+R14131:14142 GSNH_Threshold_AXp <> path_clauses def
+R14144:14144 GSNH_Threshold_AXp <> p:113 var
+prf 14178:14202 <> weak_axp_encoding_correct
+R14220:14228 GSNH_Threshold_AXp <> Valuation def
+binder 14216:14216 <> x:114
+R14249:14252 Coq.Init.Datatypes <> list ind
+R14254:14257 GSNH_Threshold_AXp <> Path def
+binder 14232:14245 <> opposite_paths:115
+R14304:14310 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R14265:14286 GSNH_Threshold_AXp <> weak_axp_encoded_evalb def
+R14288:14288 GSNH_Threshold_AXp <> x:114 var
+R14290:14303 GSNH_Threshold_AXp <> opposite_paths:115 var
+R14311:14331 GSNH_Threshold_AXp <> weak_axp_direct_evalb def
+R14333:14333 GSNH_Threshold_AXp <> x:114 var
+R14335:14348 GSNH_Threshold_AXp <> opposite_paths:115 var
+R14394:14415 GSNH_Threshold_AXp <> weak_axp_encoded_evalb def
+R14418:14438 GSNH_Threshold_AXp <> weak_axp_direct_evalb def
+R14524:14544 GSNH_Threshold_AXp <> path_encoding_correct thm
+R14524:14544 GSNH_Threshold_AXp <> path_encoding_correct thm
+R14524:14544 GSNH_Threshold_AXp <> path_encoding_correct thm
+def 14812:14819 <> sample_x
+R14823:14831 GSNH_Threshold_AXp <> Valuation def
+binder 14842:14842 <> f:116
+R14857:14857 GSNH_Threshold_AXp <> f:116 var
+R14870:14870 Coq.Init.Datatypes <> O constr
+R14877:14877 Coq.QArith.QArith_base <> ::Q_scope:x_'#'_x not
+R14887:14887 Coq.Init.Datatypes <> S constr
+R14889:14889 Coq.Init.Datatypes <> O constr
+R14896:14896 Coq.QArith.QArith_base <> ::Q_scope:x_'#'_x not
+R14913:14913 Coq.QArith.QArith_base <> ::Q_scope:x_'#'_x not
+def 14938:14948 <> lit_x0_ge_5
+R14952:14958 GSNH_Threshold_AXp <> Literal rec
+R14965:14973 GSNH_Threshold_AXp <> mkLiteral constr
+R14983:14983 Coq.QArith.QArith_base <> ::Q_scope:x_'#'_x not
+R14987:14988 GSNH_Threshold_AXp <> GE constr
+def 15003:15013 <> lit_x1_lt_2
+R15017:15023 GSNH_Threshold_AXp <> Literal rec
+R15030:15038 GSNH_Threshold_AXp <> mkLiteral constr
+R15048:15048 Coq.QArith.QArith_base <> ::Q_scope:x_'#'_x not
+R15052:15053 GSNH_Threshold_AXp <> LT constr
+def 15068:15078 <> sample_pred
+R15082:15090 GSNH_Threshold_AXp <> Predicate def
+R15097:15097 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R15109:15110 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R15122:15122 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R15098:15108 GSNH_Threshold_AXp <> lit_x0_ge_5 def
+R15111:15121 GSNH_Threshold_AXp <> lit_x1_lt_2 def
+def 15134:15155 <> sample_literal_ge_true
+R15191:15193 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R15161:15169 GSNH_Threshold_AXp <> lit_evalb def
+R15171:15178 GSNH_Threshold_AXp <> sample_x def
+R15180:15190 GSNH_Threshold_AXp <> lit_x0_ge_5 def
+R15194:15197 Coq.Init.Datatypes <> true constr
+def 15236:15257 <> sample_literal_lt_true
+R15293:15295 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R15263:15271 GSNH_Threshold_AXp <> lit_evalb def
+R15273:15280 GSNH_Threshold_AXp <> sample_x def
+R15282:15292 GSNH_Threshold_AXp <> lit_x1_lt_2 def
+R15296:15299 Coq.Init.Datatypes <> true constr
+def 15338:15353 <> sample_pred_true
+R15390:15392 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R15359:15368 GSNH_Threshold_AXp <> pred_evalb def
+R15370:15377 GSNH_Threshold_AXp <> sample_x def
+R15379:15389 GSNH_Threshold_AXp <> sample_pred def
+R15393:15396 Coq.Init.Datatypes <> true constr
+def 15435:15461 <> sample_true_branch_encoding
+R15562:15564 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R15467:15478 GSNH_Threshold_AXp <> clause_evalb def
+R15481:15498 GSNH_Threshold_AXp <> induced_assignment def
+R15500:15507 GSNH_Threshold_AXp <> sample_x def
+R15526:15548 GSNH_Threshold_AXp <> pred_true_branch_clause def
+R15550:15560 GSNH_Threshold_AXp <> sample_pred def
+R15565:15568 Coq.Init.Datatypes <> true constr
+def 15607:15633 <> sample_path_encoding_direct
+R15680:15682 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R15639:15648 GSNH_Threshold_AXp <> path_evalb def
+R15650:15657 GSNH_Threshold_AXp <> sample_x def
+R15659:15659 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R15679:15679 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R15660:15660 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R15672:15673 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R15678:15678 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R15661:15671 GSNH_Threshold_AXp <> sample_pred def
+R15674:15677 Coq.Init.Datatypes <> true constr
+R15683:15686 Coq.Init.Datatypes <> true constr
+def 15725:15752 <> sample_path_encoding_encoded
+R15846:15848 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R15758:15766 GSNH_Threshold_AXp <> cnf_evalb def
+R15769:15786 GSNH_Threshold_AXp <> induced_assignment def
+R15788:15795 GSNH_Threshold_AXp <> sample_x def
+R15811:15822 GSNH_Threshold_AXp <> path_clauses def
+R15824:15824 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R15844:15844 Coq.Lists.List ListNotations ::list_scope:'['_x_']' not
+R15825:15825 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R15837:15838 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R15843:15843 Coq.Init.Datatypes <> ::core_scope:'('_x_','_x_','_'..'_','_x_')' not
+R15826:15836 GSNH_Threshold_AXp <> sample_pred def
+R15839:15842 Coq.Init.Datatypes <> true constr
+R15849:15852 Coq.Init.Datatypes <> true constr

@@ -1,0 +1,685 @@
+--- /mnt/data/app_original.py	2026-04-26 22:56:55.592058945 +0000
++++ /mnt/data/app.py	2026-04-26 22:58:36.555291877 +0000
+@@ -6,7 +6,7 @@
+ Cinematic research dashboard with full motion design. Zero mock data.
+ Run: PYTHONPATH=src streamlit run app.py
+ """
+-import os, sys, time, threading, sqlite3, hashlib, json, base64
++import os, sys, time, threading, sqlite3, hashlib, json, base64, pickle, uuid, re
+ from datetime import datetime
+ from concurrent.futures import ThreadPoolExecutor, as_completed
+ import numpy as np
+@@ -685,6 +685,7 @@
+ # ═════════════════════════════════════════════════════════════════════
+ DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+ DB_PATH = os.path.join(os.path.dirname(__file__), "experiments.db")
++ARTIFACTS_DIR = os.path.join(os.path.dirname(__file__), "experiment_artifacts")
+ 
+ DATASET_CATALOG = {
+     "Adult Discretized":"adult_discretized.dl8","Anneal":"anneal.dl8",
+@@ -722,40 +723,233 @@
+                   "Affine (XOR)":"P*","BEST_PER_NODE":"P"}
+ 
+ # ═════════════════════════════════════════════════════════════════════
+-# DATABASE
++# DATABASE + ARTIFACT REGISTRY
+ # ═════════════════════════════════════════════════════════════════════
++def _connect_db():
++    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
++    os.makedirs(ARTIFACTS_DIR, exist_ok=True)
++    return sqlite3.connect(DB_PATH)
++
++def _existing_columns(con, table):
++    return {row[1] for row in con.execute(f"PRAGMA table_info({table})").fetchall()}
++
++def _add_column_if_missing(con, table, column, ddl):
++    if column not in _existing_columns(con, table):
++        con.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
++
+ def init_db():
+-    con = sqlite3.connect(DB_PATH)
++    con = _connect_db()
++    con.execute("""CREATE TABLE IF NOT EXISTS experiments(
++        id TEXT PRIMARY KEY,
++        created_at TEXT,
++        dataset TEXT,
++        filename TEXT,
++        languages TEXT,
++        max_depth INTEGER,
++        gamma REAL,
++        n_axp INTEGER,
++        k_folds INTEGER,
++        seed INTEGER,
++        eval_mode TEXT,
++        config_hash TEXT,
++        artifact_dir TEXT,
++        notes TEXT DEFAULT ''
++    )""")
+     con.execute("""CREATE TABLE IF NOT EXISTS runs(
+         id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT,
+         dataset TEXT, language TEXT, max_depth INTEGER, gamma REAL,
+         n_axp INTEGER, k_folds INTEGER, seed INTEGER,
+         test_acc REAL, train_acc REAL, std_acc REAL, ci95_acc REAL,
+         n_nodes INTEGER, n_leaves INTEGER, depth INTEGER,
+-        avg_axp REAL, fit_time REAL, notes TEXT DEFAULT '')""")
++        avg_axp REAL, fit_time REAL, notes TEXT DEFAULT ''
++    )""")
++    for column, ddl in [
++        ("experiment_id", "experiment_id TEXT"),
++        ("config_hash", "config_hash TEXT"),
++        ("model_path", "model_path TEXT"),
++        ("result_path", "result_path TEXT"),
++        ("dot_path", "dot_path TEXT"),
++        ("axp_path", "axp_path TEXT"),
++        ("artifact_dir", "artifact_dir TEXT"),
++    ]:
++        _add_column_if_missing(con, "runs", column, ddl)
+     con.commit(); con.close()
+ 
+-def log_run(r, dataset, language, max_depth, gamma, n_axp, k_folds, seed):
+-    con = sqlite3.connect(DB_PATH)
++def _json_default(obj):
++    if isinstance(obj, (np.integer,)):
++        return int(obj)
++    if isinstance(obj, (np.floating,)):
++        return float(obj)
++    if isinstance(obj, (np.ndarray,)):
++        return obj.tolist()
++    if isinstance(obj, (set, tuple)):
++        return list(obj)
++    if hasattr(obj, "value"):
++        return obj.value
++    return str(obj)
++
++def slugify(text):
++    return re.sub(r"[^a-zA-Z0-9_-]+", "_", str(text)).strip("_") or "item"
++
++def result_without_tree(result):
++    return {k: v for k, v in result.items() if k != "tree"}
++
++def config_hash(config):
++    raw = json.dumps(config, sort_keys=True, default=_json_default)
++    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
++
++def create_experiment(dataset, filename, languages, max_depth, gamma, n_axp, k_folds, seed, eval_mode):
++    cfg = {
++        "dataset": dataset, "filename": filename, "languages": list(languages),
++        "max_depth": max_depth, "gamma": gamma, "n_axp": n_axp,
++        "k_folds": k_folds, "seed": seed, "eval_mode": eval_mode,
++    }
++    ch = config_hash(cfg)
++    exp_id = f"exp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{ch}_{uuid.uuid4().hex[:6]}"
++    artifact_dir = os.path.join(ARTIFACTS_DIR, exp_id)
++    os.makedirs(artifact_dir, exist_ok=True)
++    con = _connect_db()
++    con.execute("""INSERT INTO experiments(id,created_at,dataset,filename,languages,
++        max_depth,gamma,n_axp,k_folds,seed,eval_mode,config_hash,artifact_dir)
++        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
++        exp_id, datetime.now().isoformat(), dataset, filename,
++        json.dumps(list(languages)), max_depth, gamma, n_axp, k_folds, seed,
++        eval_mode, ch, artifact_dir
++    ))
++    con.commit(); con.close()
++    return exp_id, artifact_dir, ch, cfg
++
++def save_run_artifacts(result, experiment_id, artifact_dir, language):
++    os.makedirs(artifact_dir, exist_ok=True)
++    slug = slugify(language)
++    model_path = os.path.join(artifact_dir, f"{slug}_tree.pkl")
++    result_path = os.path.join(artifact_dir, f"{slug}_result.json")
++    dot_path = os.path.join(artifact_dir, f"{slug}_tree.dot")
++    axp_path = os.path.join(artifact_dir, f"{slug}_axp.csv")
++    if result.get("tree") is not None:
++        try:
++            with open(model_path, "wb") as f:
++                pickle.dump(result["tree"], f)
++        except Exception:
++            model_path = ""
++    else:
++        model_path = ""
++    try:
++        with open(result_path, "w", encoding="utf-8") as f:
++            json.dump(result_without_tree(result), f, indent=2, default=_json_default)
++    except Exception:
++        result_path = ""
++    try:
++        if result.get("tree") is not None:
++            with open(dot_path, "w", encoding="utf-8") as f:
++                f.write(build_tree_dot(result["tree"]))
++        else:
++            dot_path = ""
++    except Exception:
++        dot_path = ""
++    try:
++        axp_rows = result.get("axp_data", []) or []
++        if axp_rows:
++            pd.DataFrame(axp_rows).to_csv(axp_path, index=False)
++        else:
++            axp_path = ""
++    except Exception:
++        axp_path = ""
++    return model_path, result_path, dot_path, axp_path
++
++def log_run(r, dataset, language, max_depth, gamma, n_axp, k_folds, seed,
++            experiment_id=None, artifact_dir=None, cfg_hash=None):
++    model_path = result_path = dot_path = axp_path = ""
++    if experiment_id and artifact_dir:
++        model_path, result_path, dot_path, axp_path = save_run_artifacts(
++            r, experiment_id, artifact_dir, language
++        )
++    con = _connect_db()
+     con.execute("""INSERT INTO runs(created_at,dataset,language,max_depth,gamma,
+         n_axp,k_folds,seed,test_acc,train_acc,std_acc,ci95_acc,n_nodes,
+-        n_leaves,depth,avg_axp,fit_time) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
++        n_leaves,depth,avg_axp,fit_time,experiment_id,config_hash,model_path,
++        result_path,dot_path,axp_path,artifact_dir)
++        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+         (datetime.now().isoformat(), dataset, language, max_depth, gamma,
+          n_axp, k_folds, seed, r["test_acc"], r["train_acc"],
+          r.get("std_acc",0), r.get("ci95_acc",0), r["n_nodes"],
+-         r["n_leaves"], r["depth"], r["avg_axp"], r["fit_time"]))
++         r["n_leaves"], r["depth"], r["avg_axp"], r["fit_time"],
++         experiment_id, cfg_hash, model_path, result_path, dot_path, axp_path, artifact_dir))
+     con.commit(); con.close()
+ 
+ def load_all_runs():
+-    con = sqlite3.connect(DB_PATH)
++    con = _connect_db()
+     df = pd.read_sql("SELECT * FROM runs ORDER BY id DESC", con)
+     con.close(); return df
+ 
++def load_all_experiments():
++    con = _connect_db()
++    df = pd.read_sql("SELECT * FROM experiments ORDER BY created_at DESC", con)
++    con.close(); return df
++
++def load_experiment_results(experiment_id):
++    con = _connect_db()
++    runs_df = pd.read_sql("SELECT * FROM runs WHERE experiment_id=? ORDER BY id ASC", con, params=(experiment_id,))
++    exp_df = pd.read_sql("SELECT * FROM experiments WHERE id=?", con, params=(experiment_id,))
++    con.close()
++    results = {}
++    for _, row in runs_df.iterrows():
++        payload = {}
++        result_path = row.get("result_path") if "result_path" in row else ""
++        if isinstance(result_path, str) and result_path and os.path.exists(result_path):
++            try:
++                with open(result_path, "r", encoding="utf-8") as f:
++                    payload = json.load(f)
++            except Exception:
++                payload = {}
++        tree = None
++        model_path = row.get("model_path") if "model_path" in row else ""
++        if isinstance(model_path, str) and model_path and os.path.exists(model_path):
++            try:
++                with open(model_path, "rb") as f:
++                    tree = pickle.load(f)
++            except Exception:
++                tree = None
++        if not payload:
++            payload = {
++                "train_acc": row["train_acc"], "test_acc": row["test_acc"],
++                "std_acc": row["std_acc"], "ci95_acc": row["ci95_acc"],
++                "n_nodes": row["n_nodes"], "n_leaves": row["n_leaves"],
++                "depth": row["depth"], "avg_axp": row["avg_axp"],
++                "fit_time": row["fit_time"], "axp_data": [],
++                "arity_counts": {}, "pattern_counts": {}, "language_counts": {},
++                "summary": {}, "fold_accs": None,
++            }
++        payload["tree"] = tree
++        results[row["language"]] = payload
++    cfg = {}
++    if len(exp_df):
++        er = exp_df.iloc[0]
++        cfg = {
++            "experiment_id": er["id"], "dataset": er["dataset"], "filename": er["filename"],
++            "languages": json.loads(er["languages"] or "[]"), "max_depth": int(er["max_depth"]),
++            "gamma": float(er["gamma"]), "n_axp": int(er["n_axp"]),
++            "k_folds": int(er["k_folds"]), "seed": int(er["seed"]),
++            "eval_mode": er["eval_mode"], "artifact_dir": er["artifact_dir"],
++            "config_hash": er["config_hash"],
++        }
++    return results, cfg
++
+ def delete_runs(ids):
+-    con = sqlite3.connect(DB_PATH)
++    con = _connect_db()
+     con.executemany("DELETE FROM runs WHERE id=?", [(i,) for i in ids])
+     con.commit(); con.close()
+ 
++def build_results_dataframe(results):
++    rows = []
++    for lang_name, res in results.items():
++        rows.append({"Language": lang_name, "Test Acc": res.get("test_acc", 0),
++            "Train Acc": res.get("train_acc", 0), "ci95_acc": res.get("ci95_acc",0),
++            "Nodes": res.get("n_nodes", 0), "Leaves": res.get("n_leaves", 0),
++            "Depth": res.get("depth", 0), "Avg |AXp|": res.get("avg_axp", 0),
++            "Time (s)": res.get("fit_time", 0), "SAT": COMPLEXITY_TAG.get(lang_name,"P")})
++    return pd.DataFrame(rows)
++
+ init_db()
+ 
+ # ═════════════════════════════════════════════════════════════════════
+@@ -973,6 +1167,12 @@
+     st.session_state.learning_curves = {}
+ if "animation_key" not in st.session_state:
+     st.session_state.animation_key = 0
++if "active_results" not in st.session_state:
++    st.session_state.active_results = {}
++if "active_config" not in st.session_state:
++    st.session_state.active_config = {}
++if "active_log_lines" not in st.session_state:
++    st.session_state.active_log_lines = []
+ 
+ # ═════════════════════════════════════════════════════════════════════
+ # SIDEBAR — COMMAND CENTER
+@@ -1157,14 +1357,17 @@
+ </div>
+ """, unsafe_allow_html=True)
+ 
+-if not run_btn:
++cached_results = st.session_state.get("active_results", {})
++viewing_cached = (not run_btn) and bool(cached_results)
++
++if not run_btn and not cached_results:
+     st.markdown("""
+     <div style="text-align: center; padding: 60px 20px; opacity: 0; animation: fade-in 1s ease forwards;">
+         <div style="font-size: 4rem; margin-bottom: 20px; animation: float 3s ease-in-out infinite;">🧬</div>
+         <h2 style="color: #e2e8f0; margin-bottom: 12px; font-family: Space Grotesk;">Ready to Initialize</h2>
+-        <p style="color: #64748b; max-width: 500px; margin: 0 auto; line-height: 1.6;">
+-            Configure your experiment parameters in the sidebar and launch the analysis pipeline. 
+-            The system will train ExpertGSNHTree models and extract formal AXp explanations.
++        <p style="color: #64748b; max-width: 560px; margin: 0 auto; line-height: 1.6;">
++            Configure your experiment parameters in the sidebar and launch the analysis pipeline.
++            After one run, the dashboard keeps every trained language in memory and saves the complete experiment to disk.
+         </p>
+         <div style="margin-top: 32px; padding: 20px; background: rgba(0,212,255,0.03); border-radius: 16px; border: 1px solid rgba(0,212,255,0.1); display: inline-block;">
+             <div style="display: flex; gap: 24px; align-items: center; font-size: 0.85rem; color: #94a3b8;">
+@@ -1175,45 +1378,57 @@
+                 <div style="color: #334155;">→</div>
+                 <div style="display: flex; align-items: center; gap: 8px;">
+                     <div style="width: 8px; height: 8px; border-radius: 50%; background: #b56bff; box-shadow: 0 0 10px #b56bff;"></div>
+-                    Choose Topology
++                    Choose Topologies
+                 </div>
+                 <div style="color: #334155;">→</div>
+                 <div style="display: flex; align-items: center; gap: 8px;">
+                     <div style="width: 8px; height: 8px; border-radius: 50%; background: #00ff88; box-shadow: 0 0 10px #00ff88;"></div>
+-                    Initialize
++                    Save + Inspect All Trees
+                 </div>
+             </div>
+         </div>
+     </div>
+     """, unsafe_allow_html=True)
+     st.stop()
+-    
+-if not sel_langs:
++
++if run_btn and not sel_langs:
+     st.warning("Please select at least one language topology.")
+     st.stop()
+ 
+-# Increment animation key for fresh animations
+-st.session_state.animation_key += 1
+-anim_key = st.session_state.animation_key
++if viewing_cached:
++    cfg = st.session_state.get("active_config", {})
++    results = cached_results
++    sel_langs = list(results.keys())
++    dataset_name = cfg.get("dataset", dataset_name)
++    fn = cfg.get("filename", AVAILABLE.get(dataset_name, fn))
++    max_depth = cfg.get("max_depth", max_depth)
++    gamma = cfg.get("gamma", gamma)
++    n_axp = cfg.get("n_axp", n_axp)
++    k_folds = cfg.get("k_folds", k_folds)
++    seed = cfg.get("seed", seed)
++    eval_mode = cfg.get("eval_mode", eval_mode)
++    try:
++        X_tr, y_tr, X_te, y_te, n_feats = load_dl8(fn, seed=seed)
++    except Exception:
++        pass
+ 
+-# ═════════════════════════════════════════════════════════════════════
+-# TRAINING LOOP WITH CINEMATIC UI
+-# ═════════════════════════════════════════════════════════════════════
+-st.markdown(f'<div class="section-header"><span>🚀 Execution Pipeline</span></div>', unsafe_allow_html=True)
++has_affine = "Affine (XOR)" in sel_langs
++has_interval = any(l in sel_langs for l in ("Horn","Anti-Horn","Square CNF"))
+ 
+-# Progress container
+-progress_html = st.empty()
+-log_html = st.empty()
++if run_btn:
++    st.session_state.animation_key += 1
++anim_key = st.session_state.animation_key
+ 
+-results = {}
+-log_lines = []
++log_lines = list(st.session_state.get("active_log_lines", [])) if viewing_cached else []
+ _log_lock = threading.Lock()
++log_html = st.empty()
++progress_html = st.empty()
+ 
+ def _log(msg, cls=""):
+     with _log_lock:
+         colors = {
+             "info": "#00d4ff",
+-            "success": "#00ff88", 
++            "success": "#00ff88",
+             "warning": "#ffb300",
+             "error": "#ff3b6e",
+             "dim": "#64748b"
+@@ -1221,7 +1436,8 @@
+         color = colors.get(cls, "#e2e8f0")
+         timestamp = datetime.now().strftime("%H:%M:%S")
+         log_lines.append(f'<div style="font-family: JetBrains Mono; font-size: 0.8rem; margin: 4px 0; opacity: 0; animation: slide-right 0.3s ease forwards;"><span style="color: #475569;">[{timestamp}]</span> <span style="color: {color};">{msg}</span></div>')
+-        if len(log_lines) > 50: del log_lines[:-50]
++        if len(log_lines) > 80: del log_lines[:-80]
++        st.session_state.active_log_lines = log_lines
+         log_html.markdown(f"""
+         <div class="terminal-window">
+             <div class="terminal-header">
+@@ -1231,79 +1447,102 @@
+                 <span style="margin-left: 12px; font-size: 0.75rem; color: #64748b; font-family: Space Grotesk; letter-spacing: 1px;">SYSTEM LOG</span>
+             </div>
+             <div class="terminal-body">
+-                {''.join(log_lines)}
++                {''.join(log_lines[-50:])}
+             </div>
+         </div>
+         """, unsafe_allow_html=True)
+ 
+-# Initialize training
+-_log(f"Initializing pipeline for {dataset_name}...", "info")
+-_log(f"Configuration: depth={max_depth}, γ={gamma}, seed={seed}", "dim")
++if run_btn:
++    st.markdown(f'<div class="section-header"><span>🚀 Execution Pipeline</span></div>', unsafe_allow_html=True)
++    results = {}
++    experiment_id, artifact_dir, cfg_hash, run_config = create_experiment(
++        dataset_name, fn, sel_langs, max_depth, gamma, n_axp, k_folds, seed, eval_mode
++    )
++    run_config.update({"experiment_id": experiment_id, "artifact_dir": artifact_dir, "config_hash": cfg_hash})
++    st.session_state.active_log_lines = []
++    log_lines.clear()
++
++    _log(f"Initializing pipeline for {dataset_name}...", "info")
++    _log(f"Experiment ID: {experiment_id}", "dim")
++    _log(f"Configuration: depth={max_depth}, γ={gamma}, seed={seed}, eval={eval_mode}", "dim")
++
++    for i, lang_name in enumerate(sel_langs):
++        progress_pct = (i / len(sel_langs)) * 100
++        progress_html.markdown(f"""
++        <div style="margin: 20px 0;">
++            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem; font-weight: 500;">
++                <span style="color: #e2e8f0;">Training {lang_name}...</span>
++                <span style="color: #00d4ff; font-family: Space Grotesk;">{progress_pct:.0f}%</span>
++            </div>
++            <div class="progress-container">
++                <div class="progress-bar" style="width: {progress_pct}%;"></div>
++            </div>
++        </div>
++        """, unsafe_allow_html=True)
++        _log(f"Compiling {lang_name} search kernels...", "warning")
++        if k_folds > 1:
++            X_all, y_all = load_dl8_full(fn, seed=seed)
++            res = train_kfold(X_all, y_all, LANG_MAP[lang_name], max_depth, gamma,
++                              n_axp, k_folds, seed)
++        else:
++            res = train_and_evaluate(X_tr, y_tr, X_te, y_te, LANG_MAP[lang_name],
++                                     max_depth, gamma, n_axp, seed)
++        results[lang_name] = res
++        ci_str = f" ±{res['ci95_acc']:.4f}" if res.get("ci95_acc",0) > 0 else ""
++        _log(f"✓ {lang_name}: {res['test_acc']:.4f}{ci_str} | {res['n_nodes']} nodes | {res['avg_axp']:.1f} avg |AXp|", "success")
++        try:
++            log_run(res, dataset_name, lang_name, max_depth, gamma, n_axp, k_folds, seed,
++                    experiment_id=experiment_id, artifact_dir=artifact_dir, cfg_hash=cfg_hash)
++        except Exception as e:
++            _log(f"Artifact registry warning for {lang_name}: {e}", "error")
+ 
+-for i, lang_name in enumerate(sel_langs):
+-    progress_pct = (i / len(sel_langs)) * 100
+     progress_html.markdown(f"""
+     <div style="margin: 20px 0;">
+         <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem; font-weight: 500;">
+-            <span style="color: #e2e8f0;">Training {lang_name}...</span>
+-            <span style="color: #00d4ff; font-family: Space Grotesk;">{progress_pct:.0f}%</span>
++            <span style="color: #00ff88; font-weight: 700;">✓ All Experiments Complete + Saved</span>
++            <span style="color: #00ff88; font-family: Space Grotesk;">100%</span>
+         </div>
+         <div class="progress-container">
+-            <div class="progress-bar" style="width: {progress_pct}%;"></div>
++            <div class="progress-bar" style="width: 100%; background: linear-gradient(90deg, #00ff88, #00d4ff);"></div>
+         </div>
+     </div>
+     """, unsafe_allow_html=True)
+-    
+-    _log(f"Compiling {lang_name} search kernels...", "warning")
+-
+-    if k_folds > 1:
+-        X_all, y_all = load_dl8_full(fn, seed=seed)
+-        res = train_kfold(X_all, y_all, LANG_MAP[lang_name], max_depth, gamma,
+-                          n_axp, k_folds, seed)
+-    else:
+-        res = train_and_evaluate(X_tr, y_tr, X_te, y_te, LANG_MAP[lang_name],
+-                                 max_depth, gamma, n_axp, seed)
+-    results[lang_name] = res
+-
+-    ci_str = f" ±{res['ci95_acc']:.4f}" if res.get("ci95_acc",0) > 0 else ""
+-    _log(f"✓ {lang_name}: {res['test_acc']:.4f}{ci_str} | {res['n_nodes']} nodes | {res['avg_axp']:.1f} avg |AXp|", "success")
+-
+-    try:
+-        log_run(res, dataset_name, lang_name, max_depth, gamma, n_axp, k_folds, seed)
+-    except: pass
+-
+-# Complete progress
+-progress_html.markdown(f"""
+-<div style="margin: 20px 0;">
+-    <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem; font-weight: 500;">
+-        <span style="color: #00ff88; font-weight: 700;">✓ All Experiments Complete</span>
+-        <span style="color: #00ff88; font-family: Space Grotesk;">100%</span>
+-    </div>
+-    <div class="progress-container">
+-        <div class="progress-bar" style="width: 100%; background: linear-gradient(90deg, #00ff88, #00d4ff);"></div>
++    _log(f"Saved full experiment artifacts in {artifact_dir}", "success")
++    _log("Pipeline execution complete. Rendering dashboard...", "success")
++    st.session_state.active_results = results
++    st.session_state.active_config = run_config
++    st.session_state.experiment_history.append({
++        "time": datetime.now().isoformat()[:16], "dataset": dataset_name,
++        "experiment_id": experiment_id, "artifact_dir": artifact_dir,
++        "langs": sel_langs, "depth": max_depth, "gamma": gamma,
++        "results": {k: result_without_tree(v) for k, v in results.items()},
++    })
++else:
++    cfg = st.session_state.get("active_config", {})
++    exp_id = cfg.get("experiment_id", "session-only")
++    st.markdown(f"""
++    <div style="padding: 14px 18px; margin: 8px 0 22px 0; background: rgba(0,255,136,0.05); border: 1px solid rgba(0,255,136,0.18); border-radius: 12px; color: #94a3b8;">
++        <span style="color:#00ff88; font-weight:700;">Loaded cached experiment</span>
++        <span style="color:#64748b;"> · </span>{exp_id}
++        <span style="color:#64748b;"> · </span>{len(results)} trained language model(s) available without rerun.
+     </div>
+-</div>
+-""", unsafe_allow_html=True)
++    """, unsafe_allow_html=True)
+ 
+-_log("Pipeline execution complete. Rendering dashboard...", "success")
++df_results = build_results_dataframe(results)
+ 
+-# Save history
+-st.session_state.experiment_history.append({
+-    "time": datetime.now().isoformat()[:16], "dataset": dataset_name,
+-    "langs": sel_langs, "depth": max_depth, "gamma": gamma,
+-    "results": {k: {kk: vv for kk, vv in v.items() if kk != "tree"}
+-                for k, v in results.items()},
+-})
+-
+-# Build results DataFrame
+-rows = []
+-for lang_name, res in results.items():
+-    rows.append({"Language": lang_name, "Test Acc": res["test_acc"],
+-        "Train Acc": res["train_acc"], "ci95_acc": res.get("ci95_acc",0),
+-        "Nodes": res["n_nodes"], "Leaves": res["n_leaves"],
+-        "Depth": res["depth"], "Avg |AXp|": res["avg_axp"],
+-        "Time (s)": res["fit_time"], "SAT": COMPLEXITY_TAG.get(lang_name,"P")})
+-df_results = pd.DataFrame(rows)
++if run_btn:
++    try:
++        artifact_dir = st.session_state.active_config.get("artifact_dir", "")
++        if artifact_dir:
++            df_results.to_csv(os.path.join(artifact_dir, "experiment_summary.csv"), index=False)
++            with open(os.path.join(artifact_dir, "experiment_summary.json"), "w", encoding="utf-8") as f:
++                json.dump({"config": st.session_state.active_config, "results": {k: result_without_tree(v) for k, v in results.items()}}, f, indent=2, default=_json_default)
++            with open(os.path.join(artifact_dir, "experiment_table.tex"), "w", encoding="utf-8") as f:
++                f.write(generate_latex_table(df_results, dataset_name, max_depth, gamma, k_folds))
++            with open(os.path.join(artifact_dir, "experiment_certificate.v"), "w", encoding="utf-8") as f:
++                f.write(generate_coq_file(results, dataset_name))
++    except Exception as e:
++        _log(f"Aggregate export warning: {e}", "warning")
+ 
+ # ═════════════════════════════════════════════════════════════════════
+ # 9 TABS WITH ENHANCED UI
+@@ -1475,35 +1714,45 @@
+ # ── TAB 4: TREE ──
+ with tabs[3]:
+     st.markdown('<div class="section-header"><span>Decision Tree Visualization</span></div>', unsafe_allow_html=True)
+-    
+-    tree_lang = st.selectbox("Select Model", list(results.keys()), key="tree_select")
+-    res = results[tree_lang]
+-    tree = res["tree"]
+-    
+-    st.markdown(f"""
+-    <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;">
+-        <div class="glass-card" style="padding: 16px 24px; flex: 1; min-width: 150px;">
+-            <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Language</div>
+-            <div style="font-size: 1.1rem; font-weight: 700; color: {LANG_COLORS.get(tree_lang, '#fff')};">{tree_lang}</div>
+-        </div>
+-        <div class="glass-card" style="padding: 16px 24px; flex: 1; min-width: 150px;">
+-            <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Nodes</div>
+-            <div style="font-size: 1.1rem; font-weight: 700; color: #fff;">{res['n_nodes']}</div>
+-        </div>
+-        <div class="glass-card" style="padding: 16px 24px; flex: 1; min-width: 150px;">
+-            <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Depth</div>
+-            <div style="font-size: 1.1rem; font-weight: 700; color: #fff;">{res['depth']}</div>
+-        </div>
+-        <div class="glass-card" style="padding: 16px 24px; flex: 1; min-width: 150px;">
+-            <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Accuracy</div>
+-            <div style="font-size: 1.1rem; font-weight: 700; color: #00ff88;">{res['test_acc']:.2%}</div>
++
++    def render_tree_panel(tree_lang, res):
++        tree = res.get("tree")
++        st.markdown(f"""
++        <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;">
++            <div class="glass-card" style="padding: 16px 24px; flex: 1; min-width: 150px;">
++                <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Language</div>
++                <div style="font-size: 1.1rem; font-weight: 700; color: {LANG_COLORS.get(tree_lang, '#fff')};">{tree_lang}</div>
++            </div>
++            <div class="glass-card" style="padding: 16px 24px; flex: 1; min-width: 150px;">
++                <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Nodes</div>
++                <div style="font-size: 1.1rem; font-weight: 700; color: #fff;">{res.get('n_nodes', 0)}</div>
++            </div>
++            <div class="glass-card" style="padding: 16px 24px; flex: 1; min-width: 150px;">
++                <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Depth</div>
++                <div style="font-size: 1.1rem; font-weight: 700; color: #fff;">{res.get('depth', 0)}</div>
++            </div>
++            <div class="glass-card" style="padding: 16px 24px; flex: 1; min-width: 150px;">
++                <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Accuracy</div>
++                <div style="font-size: 1.1rem; font-weight: 700; color: #00ff88;">{res.get('test_acc', 0):.2%}</div>
++            </div>
+         </div>
+-    </div>
+-    """, unsafe_allow_html=True)
+-    
+-    dot = build_tree_dot(tree)
+-    st.graphviz_chart(dot, use_container_width=True)
+-    
++        """, unsafe_allow_html=True)
++        if tree is None:
++            st.warning(f"Tree object for {tree_lang} is not available. Metrics are loaded, but the pickled model was not found or could not be restored.")
++            return
++        dot = build_tree_dot(tree)
++        st.graphviz_chart(dot, use_container_width=True)
++
++    tree_options = ["All trained languages"] + list(results.keys())
++    tree_lang = st.selectbox("Select Model", tree_options, key="tree_select")
++
++    if tree_lang == "All trained languages":
++        for lang_name, res in results.items():
++            st.markdown(f'<div class="section-header"><span>{lang_name}</span></div>', unsafe_allow_html=True)
++            render_tree_panel(lang_name, res)
++    else:
++        render_tree_panel(tree_lang, results[tree_lang])
++
+     st.markdown("""
+     <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px; font-size: 0.8rem;">
+         <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 12px; height: 12px; background: #00d4ff; border-radius: 3px;"></div> Horn</div>
+@@ -1517,11 +1766,11 @@
+ with tabs[4]:
+     st.markdown('<div class="section-header"><span>Feature Analysis</span></div>', unsafe_allow_html=True)
+     
+-    if any(res["axp_data"] for res in results.values()):
++    if any(res.get("axp_data") for res in results.values()):
+         # AXp distribution
+         axp_all = []
+         for l, r in results.items():
+-            for d in r["axp_data"]:
++            for d in r.get("axp_data", []):
+                 axp_all.append({"Language": l, "|AXp|": d["axp_len"]})
+         
+         fig = px.violin(pd.DataFrame(axp_all), x="Language", y="|AXp|", color="Language",
+@@ -1534,7 +1783,7 @@
+         st.markdown('<div class="section-header"><span>Feature Importance</span></div>', unsafe_allow_html=True)
+         feat_freq = {}
+         for res in results.values():
+-            for d in res["axp_data"]:
++            for d in res.get("axp_data", []):
+                 for f in d["axp_features"]:
+                     feat_freq[f] = feat_freq.get(f, 0) + 1
+         
+@@ -1605,13 +1854,43 @@
+ # ── TAB 8: HISTORY ──
+ with tabs[7]:
+     st.markdown('<div class="section-header"><span>Experiment Registry</span></div>', unsafe_allow_html=True)
+-    
++
+     try:
++        all_exps = load_all_experiments()
+         all_runs = load_all_runs()
+-        if len(all_runs) > 0:
++        if len(all_exps) > 0:
++            show_cols = ["id", "created_at", "dataset", "languages", "max_depth", "gamma", "k_folds", "seed", "artifact_dir"]
++            st.markdown("**Saved experiment groups**")
++            st.dataframe(all_exps[show_cols].head(30), use_container_width=True, hide_index=True)
++
++            selected_exp = st.selectbox("Restore saved experiment", all_exps["id"].tolist(), key="restore_experiment_id")
++            hc1, hc2 = st.columns([0.35, 0.65])
++            with hc1:
++                if st.button("Load experiment without retraining", use_container_width=True):
++                    restored_results, restored_cfg = load_experiment_results(selected_exp)
++                    if restored_results:
++                        st.session_state.active_results = restored_results
++                        st.session_state.active_config = restored_cfg
++                        st.session_state.active_log_lines = [
++                            f'<div style="font-family: JetBrains Mono; font-size: 0.8rem; margin: 4px 0;"><span style="color: #475569;">[{datetime.now().strftime("%H:%M:%S")}]</span> <span style="color: #00ff88;">Restored experiment {selected_exp} from disk.</span></div>'
++                        ]
++                        st.rerun()
++                    else:
++                        st.error("No saved runs found for this experiment.")
++            with hc2:
++                cfg = st.session_state.get("active_config", {})
++                artifact_dir = cfg.get("artifact_dir", "")
++                if artifact_dir:
++                    st.code(artifact_dir, language="text")
++        elif len(all_runs) > 0:
++            st.markdown("**Legacy run rows**")
+             st.dataframe(all_runs.head(50), use_container_width=True, hide_index=True)
+         else:
+             st.info("No experiments in registry.")
++
++        if len(all_runs) > 0:
++            st.markdown("**Run-level records**")
++            st.dataframe(all_runs.head(80), use_container_width=True, hide_index=True)
+     except Exception as e:
+         st.error(f"Database error: {e}")
+ 

@@ -1,0 +1,59 @@
+\begin{table}[htbp]
+\centering\small
+\caption{Comparison on professor's .dl8 datasets. DT: sklearn depth-7. GSNH: depth-5 and depth-7. 10 random 80/20 splits.}
+\begin{tabular}{l|ccc|ccc|cc}
+\toprule
+ & \multicolumn{3}{c|}{accuracy} & \multicolumn{3}{c|}{tree size} & \multicolumn{2}{c}{expl.\ len} \\
+dataset & DT$_7$ & GSNH$_5$ & GSNH$_7$ & DT$_7$ & GSNH$_5$ & GSNH$_7$ & DT$_7$ & GSNH$_5$ \\
+\midrule
+HTRU\_2-bin & \textbf{0.9780} & 0.9764 & 0.9764 & 176.8 & 25.0 & 32.0 & 6.65 & 1.71 \\
+IndiansDiabetes-bin & 0.7422 & 0.7532 & \textbf{0.7545} & 94.4 & 20.2 & 20.8 & 6.12 & 2.52 \\
+Statlog\_satellite-bin & \textbf{0.9654} & 0.9507 & \textbf{0.9653} & 95.2 & 33.0 & 60.0 & 5.47 & 4.57 \\
+adult\_discretized & 0.8490 & 0.8493 & \textbf{0.8552} & 133.0 & 49.2 & 106.6 & 6.88 & 5.36 \\
+anneal & 0.8325 & \textbf{0.8466} & \textbf{0.8460} & 47.4 & 20.0 & 26.2 & 5.51 & 3.37 \\
+audiology & \textbf{0.9591} & 0.9455 & 0.9455 & 13.2 & 8.8 & 8.8 & 2.28 & 1.60 \\
+australian-credit & \textbf{0.8504} & 0.8427 & 0.8473 & 72.2 & 16.8 & 19.4 & 5.59 & 2.34 \\
+balance-scale-bin & 0.9168 & \textbf{0.9200} & \textbf{0.9200} & 64.2 & 1.0 & 1.0 & 4.94 & 0.00 \\
+bank\_conv-bin & 0.8928 & \textbf{0.8951} & 0.8929 & 117.6 & 36.0 & 52.0 & 6.91 & 4.98 \\
+banknote-bin & 0.9775 & 0.9800 & \textbf{0.9818} & 48.0 & 24.2 & 28.2 & 4.56 & 3.63 \\
+biodeg-bin & \textbf{0.8284} & 0.8066 & 0.8218 & 86.2 & 37.4 & 53.8 & 6.40 & 4.03 \\
+breast-cancer-un & 0.9365 & \textbf{0.9387} & \textbf{0.9387} & 35.0 & 18.6 & 19.4 & 4.90 & 3.68 \\
+breast-wisconsin & 0.9438 & \textbf{0.9569} & \textbf{0.9569} & 29.8 & 12.6 & 13.4 & 4.05 & 2.30 \\
+car-un & \textbf{0.9685} & 0.9416 & 0.9673 & 44.6 & 20.2 & 35.4 & 3.66 & 2.62 \\
+car\_evaluation-bin & 0.9390 & \textbf{0.9436} & \textbf{0.9434} & 47.8 & 21.0 & 25.0 & 3.58 & 2.31 \\
+compas\_discretized & \textbf{0.6627} & \textbf{0.6618} & \textbf{0.6618} & 148.2 & 20.0 & 20.2 & 6.92 & 2.94 \\
+diabetes & 0.7162 & \textbf{0.7468} & 0.7383 & 102.4 & 23.6 & 26.6 & 5.89 & 3.14 \\
+forest-fires-un & 0.5413 & \textbf{0.5577} & \textbf{0.5577} & 35.0 & 8.2 & 8.2 & 6.44 & 3.10 \\
+german-credit & 0.6945 & \textbf{0.7080} & 0.7020 & 100.4 & 30.0 & 37.4 & 6.47 & 4.36 \\
+heart-cleveland & 0.7550 & \textbf{0.7667} & 0.7650 & 42.2 & 17.4 & 18.8 & 4.44 & 2.86 \\
+hepatitis & 0.7714 & \textbf{0.8036} & \textbf{0.8036} & 17.8 & 8.4 & 8.4 & 3.77 & 1.71 \\
+hypothyroid & \textbf{0.9820} & \textbf{0.9829} & \textbf{0.9829} & 40.0 & 7.4 & 7.4 & 2.66 & 1.24 \\
+ionosphere & 0.8817 & \textbf{0.8859} & \textbf{0.8859} & 31.6 & 19.0 & 19.4 & 4.79 & 3.85 \\
+kr-vs-kp & 0.9630 & 0.9512 & \textbf{0.9839} & 41.0 & 22.4 & 35.0 & 4.45 & 3.30 \\
+letter & \textbf{0.9886} & 0.9849 & 0.9869 & 134.6 & 27.4 & 50.4 & 5.77 & 1.92 \\
+letter\_recognition-bin & \textbf{0.9934} & \textbf{0.9931} & \textbf{0.9934} & 77.6 & 18.8 & 22.4 & 6.64 & 2.09 \\
+lymph & 0.8400 & \textbf{0.8800} & \textbf{0.8800} & 20.0 & 12.6 & 12.6 & 3.40 & 2.53 \\
+magic04-bin & \textbf{0.8448} & 0.8287 & 0.8397 & 235.8 & 52.2 & 125.0 & 6.99 & 4.82 \\
+messidor-bin & 0.6416 & \textbf{0.6424} & \textbf{0.6429} & 97.6 & 21.0 & 22.6 & 6.42 & 3.47 \\
+mushroom & \textbf{0.9999} & 0.9943 & 0.9943 & 19.4 & 13.2 & 14.0 & 3.17 & 3.10 \\
+pendigits & \textbf{0.9966} & 0.9927 & 0.9934 & 42.0 & 17.8 & 21.4 & 4.01 & 1.63 \\
+primary-tumor & \textbf{0.8059} & 0.8044 & 0.8044 & 47.8 & 10.2 & 10.2 & 5.39 & 2.05 \\
+segment & 0.9968 & \textbf{0.9985} & \textbf{0.9985} & 11.2 & 8.4 & 8.4 & 1.93 & 2.02 \\
+seismic\_bumps-bin & 0.9261 & \textbf{0.9338} & \textbf{0.9338} & 120.0 & 12.6 & 12.6 & 6.65 & 1.19 \\
+soybean & \textbf{0.9373} & 0.9349 & \textbf{0.9365} & 45.4 & 18.4 & 20.0 & 5.36 & 2.74 \\
+splice-1 & \textbf{0.9583} & 0.9513 & 0.9531 & 96.4 & 27.2 & 48.6 & 5.38 & 3.30 \\
+taiwan\_binarised & 0.8177 & \textbf{0.8212} & \textbf{0.8203} & 187.0 & 47.6 & 82.6 & 6.99 & 2.92 \\
+tic-tac-toe & \textbf{0.9172} & 0.8385 & \textbf{0.9167} & 73.8 & 11.0 & 16.0 & 4.64 & 2.33 \\
+titanic-un & 0.8129 & \textbf{0.8197} & 0.8157 & 80.4 & 16.4 & 18.4 & 6.15 & 2.49 \\
+vehicle & 0.9412 & \textbf{0.9518} & \textbf{0.9518} & 47.6 & 23.8 & 28.2 & 4.87 & 2.87 \\
+vote & \textbf{0.9506} & 0.9483 & 0.9483 & 22.4 & 12.4 & 12.4 & 3.31 & 2.11 \\
+wine1-un & 0.6472 & \textbf{0.6806} & \textbf{0.6806} & 15.0 & 6.0 & 6.0 & 6.47 & 1.94 \\
+wine2-un & \textbf{0.6417} & 0.6306 & 0.6306 & 15.0 & 5.2 & 5.2 & 6.22 & 3.29 \\
+wine3-un & 0.6694 & \textbf{0.6972} & \textbf{0.6972} & 15.0 & 5.2 & 5.2 & 6.21 & 3.04 \\
+winequality-red-bin & \textbf{0.9934} & \textbf{0.9938} & \textbf{0.9938} & 29.8 & 1.0 & 1.0 & 4.14 & 0.00 \\
+yeast & 0.7098 & \textbf{0.7202} & 0.7172 & 107.6 & 23.2 & 26.8 & 6.18 & 3.26 \\
+\midrule
+average (46) & 0.8604 & 0.8620 & 0.8657 & 69.7 & 19.4 & 27.2 & 5.21 & 2.75 \\
+\bottomrule
+\end{tabular}
+\end{table}

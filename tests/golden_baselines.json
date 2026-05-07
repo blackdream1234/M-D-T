@@ -1,0 +1,89 @@
+{
+  "lymph": {
+    "name": "lymph",
+    "seed": 42,
+    "max_depth": 5,
+    "n_train": 118,
+    "n_test": 30,
+    "train_acc": 0.949153,
+    "test_acc": 0.633333,
+    "n_nodes": 13,
+    "n_leaves": 7,
+    "max_depth_reached": 4,
+    "probas_first3": [
+      [
+        0.4545454545454546,
+        0.5454545454545454
+      ],
+      [
+        0.020408163265306145,
+        0.9795918367346939
+      ],
+      [
+        0.9090909090909091,
+        0.09090909090909091
+      ]
+    ],
+    "root_split": "(x[37] < 0.5000) \u2227 (x[54] < 0.5000)",
+    "axp_len": 3,
+    "reproducible": true
+  },
+  "hepatitis": {
+    "name": "hepatitis",
+    "seed": 42,
+    "max_depth": 5,
+    "n_train": 109,
+    "n_test": 28,
+    "train_acc": 0.889908,
+    "test_acc": 0.821429,
+    "n_nodes": 9,
+    "n_leaves": 5,
+    "max_depth_reached": 3,
+    "probas_first3": [
+      [
+        0.01449275362318836,
+        0.9855072463768116
+      ],
+      [
+        0.01449275362318836,
+        0.9855072463768116
+      ],
+      [
+        0.01449275362318836,
+        0.9855072463768116
+      ]
+    ],
+    "root_split": "(x[48] < 0.5000) \u2228 (x[34] < 0.5000)",
+    "axp_len": 2,
+    "reproducible": true
+  },
+  "vote": {
+    "name": "vote",
+    "seed": 42,
+    "max_depth": 5,
+    "n_train": 348,
+    "n_test": 87,
+    "train_acc": 0.977011,
+    "test_acc": 0.954023,
+    "n_nodes": 15,
+    "n_leaves": 8,
+    "max_depth_reached": 5,
+    "probas_first3": [
+      [
+        0.005714285714285672,
+        0.9942857142857143
+      ],
+      [
+        0.005714285714285672,
+        0.9942857142857143
+      ],
+      [
+        0.005714285714285672,
+        0.9942857142857143
+      ]
+    ],
+    "root_split": "(x[10] < 0.5000)",
+    "axp_len": 1,
+    "reproducible": true
+  }
+}

@@ -1,0 +1,3636 @@
+Explaining Multivariate Decision Trees: Characterising Tractable
+Languages
+CLÉMENT CARBONNEL, CNRS, University of Montpellier, France
+MARTIN C. COOPER∗ , IRIT, University of Toulouse, France
+EMMANUEL HEBRARD, LAAS CNRS, France
+DANY MORALES, IRIT, University of Toulouse, France
+JOÃO MARQUES-SILVA, ICREA, University of Lleida, Spain
+We study multivariate decision trees (MDTs), in particular, classes of MDTs determined by the language of relations that can
+be used to split feature space. An abductive explanation (AXp) of the classification of a particular instance, viewed as a set of
+feature-value assignments, is a minimal subset of the instance which is sufficient to lead to the same decision. We investigate
+when finding a single AXp is tractable. We identify tractable languages for real, integer and boolean features. Indeed, in the
+case of boolean languages, we provide a P/NP-hard dichotomy. We extend this dichotomy to languages defined by formulas
+whose literals correspond to splits of ordered domains of arbitrary finite size. Experiments indicate that MDTs can provide
+more compact models than classical decision trees while conserving accuracy and explainability.
+JAIR Associate Editor:
+JAIR Reference Format:
+Clément Carbonnel, Martin C. Cooper, Emmanuel Hebrard, Dany Morales, and João Marques-Silva. 2025. Explaining Multivariate Decision Trees: Characterising Tractable Languages. Journal of Artificial Intelligence Research 0, Article 0 ( 2025),
+27 pages. doi: 10.1613/jair.1.xxxxx
+
+1
+
+Background
+
+Decision trees (DTs) are a classical family of ML models. Due to their relative simplicity, DTs are often considered
+to be interpretable (with the implicit assumption that they are shallow enough to allow each decision to be
+explained by the values of a small number of features). There is considerable interest in their multivariate
+extension (MDTs) in which feature-space is split according to conditions on several features rather than on a
+single feature [9, 49, 12, 22, 34]. For example, in oblique DTs these conditions are linear inequalities [25, 41, 5, 48,
+16, 24, 44]. Some authors have extended oblique DTs by building DTs with non-linear conditions [21] whereas
+others have limited the linear conditions to at most two features [7]. In this paper we study families of MDTs,
+parameterized by the language of possible multivariate conditions, from the point of view of the tractability of
+explaining decisions.
+A (possibly multivariate) DT is a binary tree such that each leaf is labelled by a class and each internal node
+has two child nodes. At each internal node, the two edges to its child nodes are labelled by a boolean condition 𝐶
+∗ Corresponding Author.
+
+Authors’ Contact Information: Clément Carbonnel, orcid: 0000-0003-2312-2687, clement.carbonnel@lirmm.fr, CNRS, University of
+Montpellier, France; Martin C. Cooper, orcid: 0000-0003-4853-053X, cooper@irit.fr, IRIT, University of Toulouse, France; Emmanuel Hebrard,
+orcid: 0000-0003-3131-0709, hebrard@laas.fr, LAAS CNRS, Toulouse, France; Dany Morales, IRIT, University of Toulouse, France; João
+Marques-Silva, orcid: 0000-0002-6632-3086, jpms@icrea.cat, ICREA, University of Lleida, Spain.
+
+This work is licensed under a Creative Commons Attribution International 4.0 License.
+
+© 2025 Copyright held by the owner/author(s).
+doi: 10.1613/jair.1.xxxxx
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:2
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+1
+2
+3
+
+𝑏𝑢𝑦 < 𝑣ℎ𝑖𝑔ℎ
+
+4
+
+Y
+
+5
+6
+
+Y
+
+7
+8
+
+Y
+𝑛𝑜
+
+𝑛𝑜
+
+𝑝𝑒𝑟𝑠𝑜𝑛𝑠 < 3 ∨ safety < 𝑚𝑒𝑑
+
+𝑚𝑎𝑖𝑛𝑡 < ℎ𝑖𝑔ℎ
+
+N
+𝑝𝑒𝑟𝑠𝑜𝑛𝑠 < 3
+
+9
+10
+
+N
+
+safety < 𝑚𝑒𝑑
+
+Y
+safety < ℎ𝑖𝑔ℎ
+
+N
+
+Y
+𝑦𝑒𝑠
+
+𝑛𝑜
+
+N
+
+Y
+N
+𝑏𝑢𝑦 < ℎ𝑖𝑔ℎ ∨ 𝑚𝑎𝑖𝑛𝑡 < ℎ𝑖𝑔ℎ
+Y
+
+N
+𝑦𝑒𝑠
+
+𝑛𝑜
+
+𝑛𝑜
+
+𝑦𝑒𝑠
+
+N
+𝑛𝑜
+
+11
+12
+13
+14
+15
+16
+
+(a) Optimal DT of depth 3
+
+(b) Optimal 2CNF-MDT of depth 2
+
+Fig. 1. Optimal decision tree of depth 3 and 2CNF-Multivariate decision tree for UCI data set car. Features are ‘buying price’
+and ‘maintainance price’ in {‘low’, ’med’, ’high’, ’very high’}; ‘doors’ and ‘persons’ in {2, 3, 4, ≥ 5}; ‘luggage boot‘ in {‘small’,
+’med’, ’big’}; and ‘safety’ in {‘low’, ’med’, ’high’}. The classification task is to decide whether we should purchase the car.
+
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+
+and its complement ¬𝐶. In classical DTs, conditions are univariate, i.e. 𝑥𝑖 ∈ 𝑆 for some feature 𝑥𝑖 and some subset
+𝑆 of the domain of feature 𝑥𝑖 . Indeed, for simplicity of learning algorithms, it is often assumed that the domains
+are totally ordered and the only conditions are splits of the form 𝑥𝑖 ≥ 𝑎 for constants 𝑎.
+We suppose a set of features 𝑥 1, . . . , 𝑥𝑛 and a set of classes C. Feature space, denoted F is the cartesian product
+of the feature domains. An instance (feature-vector) is an element of F and a classifier is a function 𝜅 : F → C.
+A multivariate condition can be seen as a constraint which can be decomposed into its scope (a list ℓ of features)
+and its relation of arity |ℓ |. This allows us to study multivariate decision trees according to the language of
+possible constraint relations. For simplicity of presentation, we assume a unique domain 𝐷 for all features. A
+relation of arity 𝑘 is a subset of 𝐷 𝑘 . A relational language L is simply a set of relations.
+
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+
+Definition 1. A multivariate decision tree is a decision tree in which the condition tested at a node is a constraint
+on any number of features. An L-DT is a multivariate decision tree in which the constraint relations belong to the
+language L.
+A multivariate DT may be exponentially smaller than a DT. Consider the case of a parity function 𝜅 on 𝑛
+boolean features: trivially an L-DT of depth one can capture this function provided the relation corresponding to
+the constraint 𝜅 (𝑥) = 1 belongs to the language L, whereas a classical DT would necessarily be of exponential
+size. For instance, we give in Figure 1 an optimal decision tree of depth 3 and an optimal multivariate decision of
+depth 2 (restricted to disjunctions of two features) for UCI’s data set “car”1 . Both have similar accuracies (the test
+accuracy of a depth-2 2CNF-MDT is in average 1% higher than that of a depth-3 DTs on this data set). However,
+the MDT is shorter and arguably easier to interpret. In particular, it makes it very clear that the most important
+features are safety and number of passengers.
+Tractable constraint languages have been investigated in the context of the Constraint Satisfaction Problem
+(CSP). A CSP instance consists of a set of 𝑛 variables, each with its domain, together with a set of constraints,
+where each constraint is defined by its scope (a list of variables) and the relation that must hold on the variables
+in this scope. The decision version of the CSP consists in determining whether there exists some assignment
+to all 𝑛 variables in the cartesian product of the domains that satisfies all the constraints. Given a language L
+of relations, CSP(L) is the subproblem of the decision version of the CSP in which all relations belong to the
+
+45
+46
+
+1 https://archive.ics.uci.edu/dataset/19/car+evaluation
+
+47
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+
+•
+
+0:3
+
+language L. The languages L we consider are, as is classical in CSPs, arbitrary sets of relations that can apply to
+any variables/features.
+As we will see later, testing whether a subset of the feature assignments comprising the instance is sufficient
+to explain the decision involves solving a constraint satisfaction problem consisting of the conditions along
+each path to a leaf corresponding to a different decision. In classical DT’s these conditions are unary and the
+resulting CSP is trivial, but for multivariate conditions, the resulting CSP is, in general, NP-hard. We will see the
+close relationship between tractability of explaining L-DTs and the tractability of CSP(L). However, there is
+an important difference. In an MDT, for each edge corresponding to the satisfaction of a relation 𝑅 there is an
+alternate edge corresponding to its complement relation ¬𝑅. It follows that in the context of MDTs, it is important
+to study languages closed under complement: languages L such that 𝑅 ∈ L ⇒ ¬𝑅 ∈ L. There is large body of
+work on the characterisation of languages L for which CSP(L) ∈ P, culminating in a dichotomy theorem in the
+finite-domain case [10, 50]. This result implies a similar dichotomy for finite languages closed under complement,
+but the dichotomy criterion does not provide an explicit description of the tractable cases.
+Although DTs are sometimes considered to be inherently interpretable, it has recently been shown that DT
+paths can exhibit significant redundancy, both in theory and in practice, when considered as explanations
+of decisions [29]. In this paper, we therefore study the notion of abductive explanation (AXp) [46, 28] which
+can provide a more succinct explanation of a particular decision than the (M)DT path corresponding to the
+decision [29].
+Definition 2. Let 𝜅 be a classifier and v a feature-vector. A weak AXp (weak abductive explanation) of the
+decision 𝜅 (v) = 𝑐 is a subset 𝑆 of the features such that any assignment y that agrees with v on the features in 𝑆
+satisfies 𝜅 (y) = 𝑐. An AXp of a decision is a subset-minimal weak AXp.
+We study the problem of finding subset-minimal abductive explanations since this is known to be achievable
+in polynomial time for DTs whereas finding a minimum-cardinality abductive explanation is NP-hard for DTs [4].
+Indeed, this latter problem is W[2]-hard when explanation size is the parameter [42].
+A related notion is that of contrastive explanation which explains how to change a decision [27].
+Definition 3. Let 𝜅 be a classifier and v a feature-vector. A weak CXp (weak contrastive explanation) of the
+decision 𝜅 (v) = 𝑐 is a subset 𝑆 of the features such that some assignment y that differs from v only on features in a
+subset of 𝑆 satisfies 𝜅 (y) ≠ 𝑐. A CXp of a decision is a subset-minimal weak CXp.
+
+77
+78
+79
+80
+81
+82
+83
+84
+85
+86
+
+There is a interesting duality between AXps and CXps of a decision: the AXps are the minimal hitting sets of
+the CXps (and vice versa) [27]. Given the close link between the complexity of finding an AXp or a CXp [19], for
+simplicity of presentation, we will concentrate on AXps in this paper.
+Example 1. Consider the classifier 𝜅 (x) = ¬𝑥 1 ∨ (𝑥 2 ∧ (¬𝑥 3 ∨ 𝑥 4 )) where 𝑥𝑖 ∈ {0, 1} (𝑖 = 1, . . . , 4) are boolean
+features. 𝜅 can be represented by the decision tree in Figure 2. An abductive explanation (AXp) for the decision
+𝜅 (1, 1, 1, 1) = 1 is {𝑥 2, 𝑥 4 } since any feature-vector y with 𝑦2 = 𝑦4 = 1 satisfies 𝜅 (y) = 1 (but neither 𝑦2 = 1 nor 𝑦4 = 1
+alone is sufficient to guarantee 𝜅 (y) = 1). This AXp is half the length of the path in the DT of Figure 2 corresponding
+to this decision (i.e. the leftmost path). To see that {𝑥 1, 𝑥 4 } is a weak AXp it suffices to observe that 𝑥 2 = 𝑥 4 = 1 is
+incompatible with the two paths leading to leaves labelled 0.
+
+87
+88
+89
+90
+91
+92
+93
+
+Example 2. Consider the classifier 𝜅 : {0, 1}6 → {0, 1} defined by the MDT in Figure 3. An abductive explanation
+(AXp) for the decision 𝜅 (1, 1, 1, 1, 1, 1) = 1 is {𝑥 1, 𝑥 2, 𝑥 6 } since any feature-vector y with 𝑦1 = 𝑦2 = 𝑦6 = 1 satisfies
+𝜅 (y) = 1 (but none of 𝑦1 = 𝑦2 = 1 or 𝑦1 = 𝑦6 = 1 or 𝑦2 = 𝑦6 = 1 alone is sufficient to guarantee 𝜅 (y) = 1). This
+AXp consists of half the features tested along the path in the MDT of Figure 3 corresponding to this decision i.e.
+the path (¬𝑥 1 ∨ ¬𝑥 2 ∨ ¬𝑥 3 ∨ 𝑥 6 ), (¬𝑥 1 ∨ ¬𝑥 4 ∨ 𝑥 5 ), (𝑥 5 ∧ 𝑥 6 ), (𝑥 1 ∧ 𝑥 2 ). To see that {𝑥 1, 𝑥 2, 𝑥 6 } is a weak AXp of
+𝜅 (1, 1, 1, 1, 1, 1) = 1, it suffices to verify that 𝑥 1 = 𝑥 2 = 𝑥 6 = 1 is incompatible with the three paths leading to leaves
+
+94
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:4
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+95
+96
+97
+98
+99
+100
+101
+
+𝑥4
+
+102
+103
+
+1
+
+104
+
+•
+𝑥1
+@ ¬𝑥 1
+@
+•
+𝑥2
+@ ¬𝑥 2 1
+@
+𝑥3
+@ ¬𝑥 3 0
+@
+•
+@ ¬𝑥 4 1
+@
+0
+
+105
+106
+
+Fig. 2. A decision tree corresponding to the classifier 𝜅 (x) = ¬𝑥 1 ∨ (𝑥 2 ∧ (¬𝑥 3 ∨ 𝑥 4 )).
+
+107
+108
+109
+
+¬𝑥 1 ∨ ¬𝑥 2 ∨ ¬𝑥 3 ∨ 𝑥 6
+
+110
+111
+112
+113
+114
+115
+116
+117
+118
+119
+
+¬𝑥 2 ∨ 𝑥 4
+
+120
+121
+122
+123
+124
+125
+
+0
+
+•H
+HH
+
+𝑥 1 ∧𝑥 2 ∧𝑥 3 ∧¬𝑥 6
+HH
+H
+H
+H
+•H
+HH
+0
+¬𝑥 1 ∨ ¬𝑥 4 ∨ 𝑥 5
+H 𝑥 1 ∧𝑥 4 ∧¬𝑥 5
+HH
+H
+H
+•
+H
+1
+ HH
+¬𝑥 5 ∨ ¬𝑥 6 
+5 ∧ 𝑥6
+H𝑥H
+
+H
+
+H
+H•
+•
+@
+@
+¬𝑥 1 ∨ ¬𝑥 2
+@ 𝑥 2 ∧ ¬𝑥 4
+@ 𝑥1 ∧ 𝑥2
+@
+@
+@
+@
+0
+1
+1
+
+Fig. 3. A multivariate decision tree corresponding to the classifier 𝜅 (x) = (¬𝑥 1 ∨ ¬𝑥 2 ∨ ¬𝑥 3 ∨ 𝑥 6 ) ∧ ((𝑥 1 ∧ 𝑥 4 ∧ ¬𝑥 5 ) ∨ (𝑥 1 ∧
+𝑥 2 ∧ 𝑥 5 ∧ 𝑥 6 ) ∨ (𝑥 2 ∧ ¬𝑥 4 ∧ (¬𝑥 5 ∨ ¬𝑥 6 ))
+
+126
+127
+128
+129
+
+labelled 0. For example, 𝑥 1 = 𝑥 2 = 𝑥 6 = 1 is incompatible with the leftmost path and this can be verified by unit
+propagation since (¬𝑥 1 ∨ ¬𝑥 2 ∨ ¬𝑥 3 ∨ 𝑥 6 ) ∧ (¬𝑥 1 ∨ ¬𝑥 4 ∨ 𝑥 5 ) ∧ (¬𝑥 5 ∨ ¬𝑥 6 ) ∧ (¬𝑥 2 ∨ 𝑥 4 ) ∧ 𝑥 1 ∧ 𝑥 2 ∧ 𝑥 6 is an instance
+of HORNSAT.
+
+130
+131
+132
+133
+134
+135
+136
+137
+
+Example 3. Consider the classifier 𝜅 : {0, 5}5 → {0, 1} defined by the MDT in Figure 4. An abductive explanation
+(AXp) for the decision 𝜅 (2, 2, 2, 2, 2) = 1 is {𝑥 3, 𝑥 4 } since any feature-vector y with 𝑦3 = 𝑦4 = 2 satisfies 𝜅 (y) = 1
+(but neither 𝑦3 = 2 nor 𝑦4 = 2 alone is sufficient to guarantee 𝜅 (y) = 1). This AXp consists of half the features tested
+along the path in the MDT of Figure 4 corresponding to this decision i.e. the path (𝑥 1 ≥3 ∨ 𝑥 3 <5), (𝑥 4 ≥3 ∨ 𝑥 5 <3),
+(𝑥 5 <4 ∧ 𝑥 1 <3), (𝑥 1 <4 ∧ 𝑥 5 <3). To see that {𝑥 3, 𝑥 4 } is a weak AXp of 𝜅 (2, 2, 2, 2, 2) = 1, it suffices to verify that
+𝑥 3 = 𝑥 4 = 2 is incompatible with the three paths leading to leaves labelled 0. We will see in Example 8 that these
+incompatibility tests again belong to a tractable class.
+
+138
+139
+140
+
+Example 4. Consider the MDT classifier 𝜅 depicted in Figure 5. An abductive explanation (AXp) for the decision
+𝜅 (𝑏𝑢𝑦 = 𝑙𝑜𝑤, 𝑚𝑎𝑖𝑛𝑡 = 𝑚𝑒𝑑, 𝑝𝑒𝑟𝑠𝑜𝑛𝑠 = 2, safety = 𝑚𝑒𝑑, 𝑏𝑜𝑜𝑡 = 𝑚𝑒𝑑) = 𝑛𝑜 is {𝑝𝑒𝑟𝑠𝑜𝑛𝑠} since any car with
+
+141
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+
+•
+
+0:5
+
+142
+
+•H
+H
+HH 𝑥 1 <3 ∧ 𝑥 3 ≥5
+HH
+H
+H
+•H
+HH 𝑥 4 <3 ∧ 𝑥 5 ≥3
+0
+𝑥 4 ≥3 ∨ 𝑥 5 <3
+H
+HH
+H
+H
+•HH
+
+1
+
+𝑥
+<4
+∧
+𝑥
+<3
+1
+HH 5
+𝑥 5 ≥4 ∨ 𝑥 1 ≥3
+H
+HH
+
+H•
+•
+𝑥
+<2
+∧
+𝑥
+≥3
+@
+@
+2
+4
+𝑥 2 ≥2 ∨ 𝑥 4 <3
+@
+@ 𝑥 1 <4 ∧ 𝑥 5 <3
+𝑥
+≥4
+∨
+𝑥
+≥3
+1
+5
+@
+@
+@
+@
+0
+0
+1
+1
+
+143
+
+𝑥 1 ≥3 ∨ 𝑥 3 <5
+
+144
+145
+146
+147
+148
+149
+150
+151
+152
+153
+154
+155
+156
+157
+
+Fig. 4. A multivariate decision tree with conditions on pairs of integer variables.
+
+158
+159
+160
+161
+
+𝑏𝑢𝑦=ℎ𝑖𝑔ℎ ∨ 𝑝𝑒𝑟𝑠𝑜𝑛𝑠<3
+
+162
+163
+
+Y
+
+164
+
+N
+
+𝑝𝑒𝑟𝑠𝑜𝑛𝑠<3 ∨ 𝑏𝑜𝑜𝑡 <𝑚𝑒𝑑
+
+𝑚𝑎𝑖𝑛𝑡≥ℎ𝑖𝑔ℎ ∨ safety<𝑚𝑒𝑑
+
+165
+166
+167
+
+Y
+𝑝𝑒𝑟𝑠𝑜𝑛𝑠<3 ∨ safety<ℎ𝑖𝑔ℎ
+Y
+
+168
+169
+
+𝑛𝑜
+
+N
+𝑚𝑎𝑖𝑛𝑡≥𝑣ℎ𝑖𝑔ℎ ∨ safety<𝑚𝑒𝑑
+
+N
+
+Y
+𝑦𝑒𝑠
+
+𝑛𝑜
+
+Y
+N
+𝑏𝑢𝑦≥𝑣ℎ𝑖𝑔ℎ ∨ safety<𝑚𝑒𝑑
+
+N
+
+Y
+𝑦𝑒𝑠
+
+𝑛𝑜
+
+N
+𝑦𝑒𝑠
+
+𝑦𝑒𝑠
+
+170
+171
+
+Fig. 5. A multivariate decision tree of depth 3 for a classifier trained on UCI data set car.
+
+172
+173
+174
+175
+176
+177
+178
+
+only two seats (𝑝𝑒𝑟𝑠𝑜𝑛𝑠 = 2) will follow the leftmost path leading to label ‘𝑛𝑜’. Similarly, an AXp of the decision
+𝜅 (𝑏𝑢𝑦 = 𝑙𝑜𝑤, 𝑚𝑎𝑖𝑛𝑡 = 𝑚𝑒𝑑, 𝑝𝑒𝑟𝑠𝑜𝑛𝑠 = 4, safety = 𝑙𝑜𝑤, 𝑏𝑜𝑜𝑡 = 𝑚𝑒𝑑) = 𝑛𝑜 is {safety} since any instance with
+safety = 𝑙𝑜𝑤 leads to a leaf labelled ‘𝑛𝑜’. In both cases, the size of the AXp is one whereas the number of features
+tested along the path to the leaf is four. The required tests to verify that these are indeed AXps belong to the tractable
+class described in Example 12.
+
+179
+180
+181
+182
+183
+184
+185
+186
+187
+
+The need to apply formal reasoning to explainable artificial intelligence (XAI), and in particular to decisions
+taken by ML models, has been pointed out by many researchers [1, 23, 38, 39, 40]. The computational complexity
+of finding abductive explanations is an active field of research in the application of formal reasoning to explaining
+decisions taken by classifiers [2, 3, 4, 6, 11, 19, 26, 28, 47]. Izza et al [29] showed that finding an AXp of a
+decision taken by a DT is in P. (This corresponds to the case in which all constraints are unary , i.e. of the form
+𝑥𝑖 ∈ 𝑆 for some subset 𝑆 of the domain of 𝑥𝑖 ). In this paper we explore the tractability of this problem for MDTs
+parameterised by the constraint language L. We show that, in general, this problem is NP-hard, but that there
+are nonetheless many interesting tractable cases.
+
+188
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:6
+189
+190
+191
+192
+193
+194
+195
+196
+197
+198
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+Let wAXpDT(L) denote the problem of deciding whether a set of features is a weak AXp for a given decision
+taken by a L-DT, where L is a language of constraint relations. As we show in Section 2, whenever wAXpDT(L)
+∈ P, there is a polynomial-time algorithm to find an AXp: starting with the set of all features, for each feature test
+whether deleting the feature still leaves a weak AXp [17, 19].
+When L is the set of unary constraints, then an L-DT can be viewed as a classical DT. In this case, wAXpDT(L)
+is known to be tractable [29]. After identifying, in Section 2, several languages L for which wAXpDT(L) is
+tractable, in Sections 3 and 4, we describe a dichotomy theorem in the case of boolean languages. In Section 5 we
+extend this dichotomy to formulas based on literals corresponding to cuts in arbitrary finite ordered domains.
+Finally, in Section 6 we report experiments to compare DTs and MDTs. The conference version of this paper [14]
+only covered the dichotomy theorem over boolean domains.
+
+199
+200
+201
+202
+203
+
+2
+
+Tractable Explaining of MDT Decisions
+
+We begin by recalling a simple algorithm to find minimal subsets satisfying a monotone property [17]. In this
+context, a property is a boolean function on the powerset of features. We say that a property H is monotone if for
+all sets 𝑆 ⊆ 𝑇 , H (𝑆) ⇒ H (𝑇 ).
+
+204
+205
+206
+207
+208
+209
+210
+211
+
+Lemma 1. Given a monotone property H that can be tested in polynomial time and an initial finite set 𝑆 0 satisfying
+H , a minimal subset 𝑆 of 𝑆 0 satisfying H can be found in polynomial time.
+Proof. The following so-called ‘deletion’ algorithm finds a minimal 𝑆 ⊆ 𝑆 0 by testing |𝑆 0 | times the property
+H.
+for each element 𝑒 ∈ 𝑆 0 :
+if H (𝑆 \ {𝑒}) then 𝑆 ← 𝑆 \ {𝑒}
+
+212
+213
+
+□
+
+214
+215
+216
+217
+218
+219
+220
+221
+222
+223
+224
+225
+226
+227
+228
+229
+230
+
+The following corollary follows from the fact that being a weak AXp is a monotone property and that the set
+of all features is trivially a weak AXp (and hence can be used as the initial set 𝑆 0 in the deletion algorithm).
+Corollary 1. For any family of classifiers, finding a single AXp is polytime if testing whether a subset of features
+is a weak AXp is in P.
+We assume that an L-DT is represented as a binary tree in which each leaf node is labelled by a class and
+each internal node is linked to its two child-nodes by edges labelled respectively by a relation 𝑅 ∈ L and its
+complement ¬𝑅 ∈ L. The assumption of an explicit representation of ¬𝑅 avoids technical issues related to the
+possible large disparity between the sizes of the explicit representation of ¬𝑅 and its implicit representation as
+the complement of 𝑅. In the following proposition, we do not impose a fixed representation of relations (as a
+table of tuples or as a formula) but we do assume the same representation of relations in CSP(L) and in L-DTs.
+Given an MDT, we use the notation path(𝛼) to represent the set of conditions satisfied on the path from the
+root to a leaf 𝛼. Let 𝐴𝑠𝑠𝑡 represent all unary constraints consisting of assignments, i.e. 𝑥𝑖 = 𝑢 for some feature 𝑥𝑖
+and some constant 𝑢. We can view a feature-vector v as a set of literals (i.e. variable-value assignments). For a
+fixed feature-vector v, it will be convenient to associate a set 𝑋 of features with the partial assignment v𝑋 , the
+set of literals corresponding to the subset of v on these variables.
+
+231
+232
+233
+234
+
+Proposition 1. Let L be a constraint language such that L is closed under complement. Suppose that L ∪ 𝐴𝑠𝑠𝑡
+⊆ C where CSP(C) ∈ P. Then wAXpDT(L) ∈ P and an AXp of any decision taken by an L-DT can be found in
+polynomial time.
+
+235
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+236
+237
+238
+239
+240
+241
+242
+243
+244
+245
+246
+247
+248
+249
+250
+251
+252
+253
+254
+255
+256
+257
+258
+259
+260
+261
+262
+263
+264
+265
+266
+267
+268
+269
+270
+271
+272
+273
+274
+275
+276
+277
+278
+279
+280
+281
+
+•
+
+0:7
+
+Proof. Let 𝜅 be the classifier defined by an L-DT and consider a decision 𝜅 (v) = 𝑐 to be explained. By
+Corollary 1, we only need to show that we can test that a set of features 𝑋 is a weak AXp in polynomial
+time. Testing whether 𝑋 is a weak AXp can be achieved by testing whether for all leaves 𝛼 corresponding to a
+decision different to 𝑐, v𝑋 is incompatible with the set of constraints path(𝛼). The constraints of path(𝛼) are in L.
+Furthermore, the partial assignment v𝑋 can be viewed as a set of constraints in 𝐴𝑠𝑠𝑡, so this test of incompatibility
+is a CSP with constraints in L ∪ 𝐴𝑠𝑠𝑡, and hence, by the hypotheses L ∪ 𝐴𝑠𝑠𝑡 ⊆ C and CSP(C) ∈ P, is solvable in
+polynomial time.
+□
+In all the following examples (Examples 5-10), L is closed under complement, L ∪ 𝐴𝑠𝑠𝑡 ⊆ C where CSP(C) ∈
+P, and so Proposition 1 applies.
+Boolean domains. We begin with examples in which features are boolean. Two well-known boolean languages
+C for which CSP(C) is tractable are conjunctions of Horn clauses and conjunctions of 2-clauses.
+Example 5. Let L be the class of Horn clauses and their negations. The complement (negation) of a Horn clause is
+a conjunction of unary clauses and unary clauses are trivially Horn. C is the class of conjunctions of Horn clauses,
+and hence CSP(C) ∈ P since it corresponds to HORNSAT. We can observe that the constraint relations in the MDT of
+Figure 3 are all Horn clauses (or their negations) and hence this MDT is an L-DT.
+Note that, in general, the complement of a conjunction of Horn clauses is not the conjunction of Horn clauses.
+In Section 4.1 we identify the maximal generalisation of the class in Example 5. It consists of a specific form of
+conjunctions of Horn clauses.
+Example 6. Let L be the class of 2-conjunctions of 2-clauses (i.e. the conjunction of at most two clauses each of which
+contains at most two literals) together with the complements of such constraints. The complement of a 2-conjunction of
+2-clauses is also the conjunction of 2-clauses, since ¬((𝑎∨𝑏) ∧ (𝑐 ∨𝑑)) ≡ (¬𝑎∨¬𝑐) ∧ (¬𝑎∨¬𝑑) ∧ (¬𝑏 ∨¬𝑐) ∧ (¬𝑏 ∨¬𝑑).
+L ∪ 𝐴𝑠𝑠𝑡 ⊆ C where C is the set of conjunctions of 2-clauses. CSP(C) ∈ P by tractability of 2SAT.
+In general, the complement of an arbitrary conjunction of 2-clauses is not the conjunction of 2-clauses. We
+identify the maximal generalisation of this example in Section 4.3.
+Finite domains. We now consider finite feature-domains of arbitrary size. Define a two-fan constraint to be a
+constraint of the form 𝑥𝑖 = 𝑎 ∨ 𝑥 𝑗 = 𝑏, where 𝑎, 𝑏 are constants.
+Example 7. Let L be the class of two-fan constraints and their complements, together with all unary constraints
+𝑥𝑖 ∈ 𝑆 where 𝑆 is any subset of the domain of 𝑥𝑖 . The complement of the two-fan 𝑥𝑖 = 𝑎 ∨ 𝑥 𝑗 = 𝑏 is the constraint
+𝑥𝑖 ≠ 𝑎 ∧ 𝑥 𝑗 ≠ 𝑏 which is the conjunction of two unary constraints. Let maj : 𝐷 3 → 𝐷 be the function defined
+by maj(𝑎, 𝑏, 𝑐) = 𝑏 if 𝑏 = 𝑐 and maj(𝑎, 𝑏, 𝑐) = 𝑎 if 𝑏 ≠ 𝑐. It returns the majority value among its arguments,
+if it exists, and its first argument otherwise. A binary relation 𝑅 is maj-closed if (𝑎 1, 𝑎 2 ), (𝑏 1, 𝑏 2 ), (𝑐 1, 𝑐 2 ) ∈ 𝑅 ⇒
+(maj(𝑎 1, 𝑏 1, 𝑐 1 ),maj(𝑎 2, 𝑏 2, 𝑐 2 )) ∈ 𝑅, and all unary constraints are maj-closed. All two-fan constraints and conjunctions
+of unary constraints are maj-closed. It is well known that CSP(C) ∈ P where C is the set of maj-closed relations [18,
+31].
+Now suppose that all domains are totally ordered. Define a unary inequality literal (UI-literal) to be a constraint
+of the form 𝑥𝑖 ≥ 𝑎 or 𝑥𝑖 < 𝑎 where 𝑎 is any element of the domain of feature 𝑥𝑖 except the minimum element.
+Example 8. Let L be the class of (unary or) binary boolean functions 𝜙 of UI-literals. The complement (negation)
+of such a function is also a (unary or) binary boolean function of UI-literals. Let med be the ternary function which
+returns the median value among its three arguments. A binary relation 𝑅 is med-closed if whenever (𝑢 1, 𝑢 2 ), (𝑣 1, 𝑣 2 ),
+(𝑤 1, 𝑤 2 ) ∈ 𝑅, we have (med(𝑢 1, 𝑣 1, 𝑤 1 ),med(𝑢 2, 𝑣 2, 𝑤 2 )) ∈ 𝑅, and all unary constraints are med-closed. med(𝑢, 𝑣, 𝑤)
+satisfies a UI-literal ℓ iff the majority of 𝑢, 𝑣, 𝑤 satisfy ℓ. It follows that, given two UI-literals (such as ℓ1 (𝑥 1 ) := 𝑥 1 ≥ 𝑎
+
+282
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:8
+283
+284
+285
+286
+287
+288
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+and ℓ2 (𝑥 2 ) := 𝑥 2 < 𝑏, for example) and three pairs (𝑢 1, 𝑢 2 ), (𝑣 1, 𝑣 2 ), (𝑤 1, 𝑤 2 ), the pair of values (ℓ1 (𝑚 1 ), ℓ2 (𝑚 2 )) where
+(𝑚 1, 𝑚 2 ) = (med(𝑢 1, 𝑣 1, 𝑤 1 ),med(𝑢 2, 𝑣 2, 𝑤 2 )) will necessarily coincide with one of (ℓ1 (𝑢 1 ), ℓ2 (𝑢 2 )), (ℓ1 (𝑣 1 ), ℓ2 (𝑣 2 ))
+or (ℓ1 (𝑤 1 ), ℓ2 (𝑤 2 )). Thus, any boolean function 𝜙 of the literals ℓ1, ℓ2 satisfied by all three pairs (𝑢 1, 𝑢 2 ), (𝑣 1, 𝑣 2 ),
+(𝑤 1, 𝑤 2 ) will also be satisfied by the pair (med(𝑢 1, 𝑣 1, 𝑤 1 ),med(𝑢 2, 𝑣 2, 𝑤 2 )). It is well known that CSP(C) ∈ P where C
+is the set of med-closed relations [30]. All the constraints in the MDT shown in Figure 4 are binary boolean functions
+of UI-literals and hence this is an example of an L-DT.
+
+289
+290
+291
+
+We will consider a generalisation of both Example 7 and Example 8 in Example 12. Indeed, we identify all
+tractable languages of boolean functions of UI-literals in Section 5.3.
+
+292
+
+Infinite domains. We now consider infinite domains, firstly integer domains and then real domains.
+
+293
+294
+295
+296
+297
+298
+
+Example 9. A unit two variable per inequality (UTVPI) constraint is of the form 𝑎𝑥𝑖 + 𝑏𝑥 𝑗 ≤ 𝑑 where 𝑥𝑖 and 𝑥 𝑗
+are integer variables, the coefficients 𝑎, 𝑏 ∈ {−1, 0, 1} and the bound 𝑑 is an integer constant. The negation of such a
+constraint is −𝑎𝑥𝑖 − 𝑏𝑥 𝑗 ≤ −(𝑑 + 1) and is hence also an UTVPI constraint. A unary assignment 𝑥𝑖 = 𝑑 is equivalent
+to 𝑥𝑖 ≤ 𝑑 ∧ −𝑥𝑖 ≤ −𝑑, a conjunction of UTVPI constraints. Let L be the set of UTVPI constraints and C the class of
+constraints consisting of conjunctions of UTVPI constraints. Then L ∪ 𝐴𝑠𝑠𝑡 ⊆ C and it is known that CSP(C) ∈ P [36].
+
+299
+300
+301
+302
+303
+304
+305
+306
+307
+308
+309
+310
+311
+312
+313
+314
+315
+316
+317
+318
+319
+320
+321
+322
+323
+324
+325
+326
+327
+328
+
+Example 10. Let L be the class of linear inequalities (≤ or <) over the reals. The complement of a linear inequality
+is again a linear inequality and assignments 𝑥𝑖 = 𝑢 can be viewed as two linear inequalities (𝑥𝑖 ≤ 𝑢 and −𝑥𝑖 ≤ −𝑢).
+C is the set of systems of linear inequalities over R. Hence L ∪ 𝐴𝑠𝑠𝑡 ⊆ C and it is well known that CSP(C) ∈ P.
+Since an oblique decision tree is an MDT in which all conditions are linear inequalities over R, we can deduce
+that there is a polynomial-time algorithm to find an AXp of a decision taken by an oblique decision tree. The dual
+of an abductive explanation is a contrastive explanation, a minimal set of features that, if changed, changes the
+output of the classifier (Definition 3). It has already been observed that an optimal contrastive explanation, known
+as a counterfactual explanation or adversarial example, can be found for oblique decision trees in polynomial time
+for a linear error function, by reduction to Linear Programming [15]. It is important to note that the tractability
+of finding AXps (or contrastive explanations) for oblique decision trees depends critically on the assumption that
+all features are real-valued.
+It is known that if a family of classifiers is closed under fixing features, then the tractability of the problem of
+finding an AXp or a CXp coincide (Theorem 4 of [19]). It follows that, for all languages given in the examples
+listed above (Examples 5 to 10), Proposition 1 also implies that a CXp can be found in polynomial time.
+
+3
+
+Tractable Boolean Languages: The Algebraic Approach
+
+We first study the characterisation of tractable languages L for wAXpDT(L) from an abstract algebraic point of
+view, before looking for a detailed characterisation.
+The complexity of wAXpDT(L) is closely tied to that of CSP(L) so we will use the same machinery to prove
+our results. Let 𝑓 : 𝐷 𝑘 → 𝐷 be a function. A relation 𝑅 has 𝑓 as a polymorphism (we say that 𝑅 is closed under 𝑓 )
+if ∀𝑡 1, . . . , 𝑡𝑘 ∈ 𝑅, the tuple 𝑓 (𝑡 1, . . . , 𝑡𝑘 ) obtained by applying 𝑓 componentwise to the 𝑘 vectors 𝑡 1, . . . , 𝑡𝑘 belongs
+to 𝑅. We say that a language L has the polymorphism 𝑓 if all relations in L are closed under 𝑓 . The complexity
+of CSP(L) is known to be determined by the polymorphisms of CSP(L), up to logspace reductions [32].
+For all languages L over finite domains, CSP(L) is either in P or NP-complete [10, 50]. For our purposes, we
+only need to present the dichotomy criterion in the boolean setting. This particular result is known as Schaefer’s
+Theorem [45], and its modern formulation involves six different boolean functions.
+In the following, let 𝑓0 and 𝑓1 denote the constant unary functions that always return 0 and 1, respectively.
+The binary functions max and min return respectively the maximum and minimum of their two arguments. The
+
+329
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+330
+331
+
+𝐶2
+•
+
+332
+333
+334
+
+•
+
+0:9
+
+•
+@ ¬𝐶 1
+𝐶1
+@
+•
+@ ¬𝐶 2 1
+@
+1
+
+335
+336
+337
+338
+339
+
+𝐶𝑒
+0
+
+•
+@ ¬𝐶𝑒
+@
+1
+
+340
+341
+
+Fig. 6. A decision tree 𝑇𝐼 which has a non-empty AXp if and only if the constraints 𝐶 1, . . . , 𝐶𝑒 are simultaneously satisfiable.
+
+342
+343
+344
+345
+346
+347
+348
+349
+350
+351
+352
+
+majority function maj : {0, 1}3 → {0, 1} (already seen in Example 7) is given by
+
+𝑦 if 𝑦 = 𝑧
+maj(𝑥, 𝑦, 𝑧) =
+𝑥 otherwise
+and the minority function miny : {0, 1}3 → {0, 1} is given by
+
+𝑧
+if 𝑥 = 𝑦
+miny(𝑥, 𝑦, 𝑧) =
+¬𝑧 otherwise.
+Theorem 1 (Schaefer [45]). Let L be a boolean language. If L has either 0, 1, max, min, maj or miny as a
+polymorphism, then CSP(L) ∈ P. Otherwise, CSP(L) is NP-complete.
+
+353
+354
+355
+356
+357
+358
+359
+360
+361
+362
+363
+364
+365
+366
+367
+368
+369
+370
+371
+372
+373
+374
+375
+
+Theorem 2. Let L be a finite boolean language closed under taking complements. Then, assuming P ≠ NP,
+wAXpDT(L) ∈ P iff L has either max, min, maj or miny as a polymorphism.
+Proof. ⇐: Suppose that L has either max, min, maj or miny as a polymorphism. By Theorem 1, we have
+CSP(L) ∈ P. Furthermore, all unary relations have these four polymorphisms. Thus, we also have CSP(L ∪ 𝐴𝑠𝑠𝑡)
+∈ P, and hence by Proposition 1, wAXpDT(L) ∈ P.
+⇒: We first give a polynomial reduction from CSP(L) to wAXpDT(L). Let 𝐼 be an instance of CSP(L) consisting
+of constraints 𝐶 1, . . . , 𝐶𝑒 . We build a DT 𝑇𝐼 , shown in Figure 6, as a sequence of tests corresponding to these
+constraints. 𝐶 1 is the test at the root of 𝑇𝐼 , and each 𝐶𝑖 (𝑖 = 2, . . . , 𝑒) is the test at the positive child of 𝐶𝑖 −1 (i.e.
+the node attained after a positive response to the test 𝐶𝑖 −1 ). The positive child of 𝐶𝑒 is a leaf node labelled 0. All
+negative children of all nodes of 𝑇𝐼 are leaf nodes labelled 1. Let 𝜅 be the function defined by the DT 𝑇𝐼 . Now
+consider any decision 𝜅 (v) = 1. The empty set is a weak AXp of this decision iff it is impossible to simultaneously
+satisfy the constraints 𝐶 1, . . . , 𝐶𝑒 , since the only leaf node labelled 0 can only be reached if all these constraints
+are satisfied. Thus deciding whether ∅ is a weak AXp amounts to solving 𝐼 ∈ CSP(L).
+Thus, assuming P ≠ NP, we deduce from Theorem 1 that CSP(L) ∈ P iff L has (at least) one of the six functions
+𝑓0 , 𝑓1 , max, min, maj or miny as a polymorphism. A non-empty relation 𝑅 has polymorphism 𝑓𝑎 , where 𝑎 ∈ {0, 1},
+iff the tuple (𝑎, . . . , 𝑎) (of length the arity of 𝑅) belongs to 𝑅. Consequently, a language L closed under taking
+complements cannot have 𝑓𝑎 as a polymorphism unless all relations in L are either empty or complete; in this
+case, L has all six of Schaefer’s polymorphisms. Thus L has either max, min, maj or miny as a polymorphism.
+□
+In the general (non-boolean) case, the two reductions behind Proposition 1 and Theorem 2 imply that
+wAXpDT(L) is at most as hard as CSP(L ∪ 𝐴𝑠𝑠𝑡) and at least as hard as CSP(L). However, in contrast to
+
+376
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:10
+377
+378
+379
+380
+381
+382
+383
+384
+385
+386
+387
+388
+389
+390
+391
+392
+393
+394
+395
+396
+397
+398
+399
+400
+401
+402
+403
+404
+405
+406
+407
+408
+409
+410
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+boolean domains, there exists a wide array of languages L such that CSP(L) ∈ P and CSP(L ∪ 𝐴𝑠𝑠𝑡) is NPcomplete. These languages greatly complicate the analysis and make a general-domain analog of Theorem 2
+more difficult to prove. For now, we will focus on boolean domains only.
+Theorem 2 shows that there is a complexity dichotomy for wAXpDT(L) but fails to provide an explicit
+description of the polynomial-time boolean languages. We address this issue in the next section.
+
+4
+
+Characterisation of Tractable Boolean Languages
+
+We now study tractable boolean languages closed under taking complements, in order to gain a better insight into
+the tractable classes identified in Theorem 2. Let L 𝑓 be the language of boolean relations having the polymorphism
+𝑓 . It is well known [31, 33, 32] that
+(1) Lmin is the set of conjunctions of Horn clauses.
+(2) Lmax is the set of conjunctions of anti-Horn clauses.
+(3) Lminy is the set of conjunctions of affine constraints (i.e. linear equations).
+(4) Lmaj is the set of conjunctions of 2-clauses.
+In all four cases, L 𝑓 is not closed under complement and so we require extra work to identify the (unique)
+maximal sublanguage closed under complement.
+
+4.1
+
+Horn and Anti-Horn
+
+We start with the language Lmin . By the discussion above we need to characterise the maximal sublanguage
+of Lmin closed under complement, or equivalently the Horn formulas whose negation is expressible by a Horn
+formula. We will prove that these formulas are exactly those in which the sets of negative literals appearing in
+clauses are totally ordered with respect to set inclusion. We call such formulas star-nested.
+Definition 4. A Horn formula 𝜓 is star-nested if and only if there exist sets of literals 𝐿 and ∅ = 𝑆 0 ⊂ 𝑆 1 ⊂ 𝑆 2 ⊂
+. . . ⊂ 𝑆𝑞 such that
+• all literals in 𝐿 are positive, and
+• all literals in 𝑆𝑞 are negative, and
+
+Ô
+Ô
+• every clause 𝐶 in 𝜓 is of the form 𝐶 = 𝑠 ∈𝑆𝑖 𝑠 or 𝐶 = 𝑙 ∨ 𝑠 ∈𝑆𝑖 𝑠 with 𝑙 ∈ 𝐿.
+To clarify the definition, we point out that each set 𝑆𝑖 may occur more than once in the formula (in clauses
+with different positive literals 𝑙). In particular, star-nested Horn formulas may contain any number of unit clauses
+with positive literals (which correspond to the set 𝑆 0 = ∅). Clearly, since the sets 𝑆𝑖 are nested, a star-nested
+formula with no redundant clauses contains at most one clause consisting of only negative literals and at most
+one clause for each positive literal 𝑙 ∈ 𝐿.
+
+411
+412
+413
+414
+415
+416
+417
+418
+419
+420
+421
+422
+
+Proposition 2. Let 𝜓 be a star-nested Horn formula. Then, ¬𝜓 is equivalent to a star-nested Horn formula.
+Ô
+Proof. We proceed by induction on the number of sets 𝑆𝑖 . For 𝑞 = 0, we have ¬𝜓 = 𝑙 ∈𝐿 ¬𝑙 and hence ¬𝜓 is a
+star-nested Horn formula. Now, let 𝑞 > 0 and 𝜓 be a star-nested Horn formula with sets 𝐿, 𝑆 0, . . . , 𝑆𝑞 . Suppose
+that the claim is true for all formulas with strictly fewer sets. If we denote by 𝐿0 the subset of literals in 𝐿 that
+appear in unit clauses of 𝜓 , then 𝜓 can be rewritten as
+!
+!
+Û
+Ü
+𝜓=
+𝑙 ∧ (
+𝑠) ∨ 𝜙
+𝑙 ∈𝐿0
+
+𝑠 ∈𝑆 1
+
+where 𝜙 is Horn and star-nested with sets 𝐿 \ 𝐿0, 𝑆 1 \ 𝑆 1, 𝑆 2 \ 𝑆 1, . . . , 𝑆𝑞 \ 𝑆 1 . In particular, 𝜙 is star-nested with
+one fewer set than 𝜓 . By induction, ¬𝜙 can be assumed to be Horn and star-nested with sets 𝐿 ′, 𝑆 0′ , . . . , 𝑆𝑝′ . Then,
+
+423
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+424
+
+427
+428
+429
+430
+431
+432
+433
+434
+435
+436
+437
+438
+439
+440
+441
+442
+443
+444
+445
+446
+447
+448
+449
+
+0:11
+
+we have
+
+425
+426
+
+•
+
+!
+¬𝜓 =
+
+Ü
+
+¬𝑙 ∨ (
+
+𝑙 ∈𝐿0
+
+!
+Û
+
+¬𝑠) ∧ ¬𝜙
+
+𝑠 ∈𝑆 1
+
+′′
+and hence ¬𝜓 is star-nested with sets 𝑆 0′′ = ∅, 𝑆 1′′ = 𝑆 0′ ∪ {¬𝑙 | 𝑙 ∈ 𝐿0 }, . . . , 𝑆𝑝+1
+= 𝑆𝑝′ ∪ {¬𝑙 | 𝑙 ∈ 𝐿0 }, and
+′′
+′
+𝐿 = 𝐿 ∪ {¬𝑠 | 𝑠 ∈ 𝑆 1 }.
+□
+
+Proposition 3. Let 𝑅 be a boolean relation such that min is a polymorphism of both 𝑅 and ¬𝑅. Then 𝑅(𝑥 1, . . . , 𝑥𝑟 ) ≡
+𝜓 (𝑥 1, . . . , 𝑥𝑟 ), where 𝜓 is a star-nested Horn formula.
+Proof. We proceed by induction on the arity 𝑟 of 𝑅. The claim is true for 𝑟 = 1 since 𝑅 is either empty,
+complete, or equivalent to a unit clause; in all cases it is expressible by a star-nested Horn formula. Let 𝑟 > 1 and
+suppose that the claim is true for all relations whose arity is strictly smaller than 𝑟 . Let 𝑅 be a relation of arity
+𝑟 such that min is a polymorphism of both 𝑅 and ¬𝑅. We assume without loss of generality that the all-zeroes
+tuple of length 𝑟 belongs to 𝑅. (If this is not the case, then ¬𝑅 contains this tuple and we prove the claim on
+¬𝑅 instead.) If 𝑅 is complete then we are done. Otherwise, its negation ¬𝑅 = {𝑡 1, . . . , 𝑡𝑛 } is not empty. Since ¬𝑅
+has the polymorphism min (which we can assume to be of any arity), we have 𝑡 = min(𝑡 1, . . . , 𝑡𝑛 ) ∈ ¬𝑅. Note
+that each 𝑡𝑖 is a tuple, so here the operation min is applied componentwise to the set of tuples 𝑡 1, . . . , 𝑡𝑛 . The
+tuple (0, . . . , 0) does not belong to ¬𝑅, so the set 𝑃 = {𝑖 ≤ 𝑟 | 𝑡 [𝑖] = 1} is not empty. We assume without loss
+of generality that 𝑃 = {1, . . . , 𝑐}. Since 𝑡 𝑗 [𝑖] = 1 for all 𝑗 ∈ {1, . . . , 𝑛} and 𝑖 ∈ 𝑃, there exists a relation 𝑄 such
+that ¬𝑅(𝑥 1, . . . , 𝑥𝑟 ) ≡ 𝑥 1 ∧ . . . ∧ 𝑥𝑐 ∧ 𝑄 (𝑥𝑐+1, . . . , 𝑥𝑟 ). Both 𝑄 and ¬𝑄 have the polymorphism min (because 𝑄
+is a projection of ¬𝑅 and ¬𝑄 is a projection of a conjunction of 𝑅 with unit clauses; the polymorphism min is
+invariant under these transformations) and the arity of 𝑄 is strictly smaller than 𝑟 . By induction, there exists a
+star-nested Horn formula 𝜓 such that ¬𝑄 (𝑥𝑐+1, . . . , 𝑥𝑟 ) ≡ 𝜓 (𝑥𝑐+1, . . . , 𝑥𝑟 ). Then, we have
+𝑅(𝑥 1, . . . , 𝑥𝑟 )
+
+450
+
+≡ ¬(𝑥 1 ∧ . . . ∧ 𝑥𝑐 ∧ 𝑄 (𝑥𝑐+1, . . . , 𝑥𝑟 ))
+
+451
+
+≡ ¬𝑥 1 ∨ . . . ∨ ¬𝑥𝑐 ∨ ¬𝑄 (𝑥𝑐+1, . . . , 𝑥𝑟 )
+
+452
+
+≡ ¬𝑥 1 ∨ . . . ∨ ¬𝑥𝑐 ∨ 𝜓 (𝑥𝑐+1, . . . , 𝑥𝑟 )
+
+453
+454
+455
+456
+457
+458
+459
+460
+461
+462
+463
+464
+465
+
+and hence 𝑅 is equivalent to a star-nested Horn formula by distributivity of ∨ over ∧.
+
+□
+
+Theorem 3. Let L be a boolean constraint language. The following are equivalent:
+(i) L has the polymorphism min and is closed under taking complements
+(ii) Each relation in L is equivalent to a star-nested Horn formula
+Proof. Follows from Proposition 2 and Proposition 3.
+
+□
+
+We also note that, given in input the list of tuples of a relation 𝑅, star-nested formulas for 𝑅 and its complement
+¬𝑅 can be constructed in polynomial time if they exist. The algorithm is given by the recursive constructions
+used in the proofs of Proposition 2 and Proposition 3.
+An anti-Horn formula is star-nested if replacing each literal by its negation yields a star-nested Horn formula.
+The following directly follows from the arguments above, with only slight adaptations.
+
+466
+467
+468
+469
+
+Theorem 4. Let L be a boolean constraint language. The following are equivalent:
+(i) L has the polymorphism max and is closed under taking complements
+(ii) Each relation in L is equivalent to a star-nested anti-Horn formula
+
+470
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:12
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+471
+
+4.2
+
+Affine
+
+472
+
+We now turn our attention to the case of Lminy , which is straightforward.
+
+473
+474
+475
+476
+477
+478
+479
+480
+481
+482
+483
+484
+485
+486
+487
+488
+489
+490
+491
+492
+493
+494
+495
+496
+497
+498
+499
+500
+501
+502
+503
+504
+505
+506
+507
+508
+509
+510
+511
+512
+513
+514
+515
+516
+
+Theorem 5. Let L be a boolean constraint language. The following are equivalent:
+(i) L has the polymorphism miny and is closed under taking complements
+(ii) Each relation in L is equivalent to a linear equation over GF(2), the finite field of two elements.
+Proof. The fact that any language satisfying (ii) is closed under taking complements is trivial, as the complement of the equation 𝑎 1𝑥 1 + . . . + 𝑎𝑟 𝑥𝑟 = 𝑏 is 𝑎 1𝑥 1 + . . . + 𝑎𝑟 𝑥𝑟 = 1 − 𝑏. In addition, relations equivalent to linear
+equations over GF(2) have the minority polymorphism [31]. This establishes (ii) ⇒ (i).
+Now, let 𝑅 be a relation of arity 𝑟 such that both 𝑅 and ¬𝑅 have the minority polymorphism. If 𝑅 is either
+empty or complete then it is expressible as a linear equation (0 = 1 or 0 = 0, respectively). Otherwise, both 𝑅 and
+¬𝑅 correspond to the solution sets of systems of linear equations over GF(2) that are not degenerate (i.e. at least
+one equation has a nonzero coefficient). Since any nondegenerate linear equation over GF(2) over 𝑟 variables
+has exactly 2𝑟 −1 solutions, we have |𝑅| = |¬𝑅| = 2𝑟 −1 and only one equation will remain in both systems after
+discarding all redundant equations. This establishes (i) ⇒ (ii) and concludes the proof.
+□
+
+4.3
+
+Conjunctions of 2-Clauses
+
+As mentioned above, over boolean domains a relation has the polymorphism maj if and only if it is a conjunctions
+of 2-clauses (clauses containing up to two literals). Thus, to complete the study of tractable cases identified in
+Theorem 2, we now characterise those formulas Φ such that both Φ and ¬Φ are expressible as conjunctions of
+2-clauses.
+A 2-clause is a clause consisting of at most two literals and a 2-term is a term consisting of at most two literals.
+The following lemma follows immediately from De Morgan’s theorem.
+Lemma 2. A boolean formula Φ such that ¬Φ is expressible as conjunction of 2-clauses is expressible as a disjunction
+of 2-terms.
+Lemma 3. Suppose that a boolean formula Φ is such that Φ is expressible as conjunctions of 2-clauses and also as a
+disjunction of 2-terms. Suppose, furthermore, that Φ ≡ (𝑎 ∨ 𝑏) ∧ Φ1 and Φ ≡ (𝑐 ∧ 𝑑) ∨ Φ2 . Then there is a non-empty
+intersection between the two sets of literals {𝑎, 𝑏} and {𝑐, 𝑑 }.
+Proof. With the assignments 𝑎 = 𝑏 = 0 and 𝑐 = 𝑑 = 1 we have a contradiction. This can only be avoided if the
+sets of literals {𝑎, 𝑏} and {𝑐, 𝑑 } intersect.
+□
+Lemma 4. Suppose that a boolean formula Φ is such that Φ is expressible as a conjunction of 2-clauses and also as
+a disjunction of 2-terms of the form Φ = 𝑎 ∨ Φ1 , where 𝑎 is a literal. Then Φ is of one of the three forms (1) 𝑎, (2)
+𝑎 ∨ 𝑏, or (3) (𝑎 ∨ 𝑏) ∧ (𝑎 ∨ 𝑐).
+Proof. Suppose that Φ ≡ (𝑏 ∨ 𝑐) ∧ Φ2 . Setting 𝑎 = 1 and 𝑏 = 𝑐 = 0 leads to a contradiction, so to render this
+impossible we must have 𝑎 = 𝑏 or 𝑎 = 𝑐.ÓSince this is true for any conjunct, when Φ is expressed as a conjunction
+of 2-clauses, we can deduce that Φ ≡ 𝑚
+𝑖=1 (𝑎 ∨ 𝑏𝑖 ) for some literals 𝑏 1, . . . , 𝑏𝑚 . Since Φ is also expressible as a
+disjunction of 2-terms, we only need to consider the cases in which 𝑚 ≤ 2. When we include the case Φ = 𝑎 we
+have the three cases (1) 𝑎, (2) 𝑎 ∨ 𝑏, (3) (𝑎 ∨ 𝑏) ∧ (𝑎 ∨ 𝑐).
+□
+We give without proof the analogous lemma obtained by exchanging conjunction and disjunction.
+Lemma 5. Suppose that a boolean formula Φ is such that Φ is expressible as a disjunction of 2-terms and also as a
+conjunction of 2-clauses of the form Φ = 𝑎 ∧ Φ1 , where 𝑎 is a literal. Then Φ is of one of the three forms (1) 𝑎, (2)
+𝑎 ∧ 𝑏, or (3) (𝑎 ∧ 𝑏) ∨ (𝑎 ∧ 𝑐).
+
+517
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+518
+519
+520
+521
+522
+523
+524
+525
+526
+527
+528
+529
+530
+531
+532
+533
+534
+535
+536
+537
+538
+539
+540
+541
+542
+543
+544
+545
+546
+547
+548
+549
+550
+551
+552
+553
+554
+555
+556
+557
+558
+559
+560
+561
+562
+563
+
+•
+
+0:13
+
+Observe that case (3) in Lemma 5 when written as a conjunction of 2-clauses is 𝑎 ∧ (𝑏 ∨ 𝑐).
+A binary term is a 2-term that contains exactly two distinct literals.
+Lemma 6. Suppose that a boolean formula Φ ≠ ⊥ is such that Φ is expressible as a conjunction of 2-clauses and
+also as a disjunction of binary terms of the form Φ = (𝑎 ∧𝑐) ∨ (𝑏 ∧𝑑) ∨ Φ1 , where 𝑎, 𝑏, 𝑐, 𝑑 are distinct literals. Then Φ
+is of one of the three forms (1) (𝑎 ∨𝑏) ∧ (𝑐 ∨𝑑), (2) (𝑎 ∨𝑏) ∧ (𝑏 ∨𝑐) ∧ (𝑐 ∨𝑑), or (3) (𝑎 ∨𝑏) ∧ (𝑏 ∨𝑐) ∧ (𝑎 ∨𝑑) ∧ (𝑐 ∨𝑑)
+for distinct literals 𝑎, 𝑏, 𝑐, 𝑑.
+Proof. Applying Lemma 3 twice, we know that all conjuncts, when Φ is expressed as a conjunction of 2-clauses,
+must contain one of 𝑎, 𝑐 and one of 𝑏, 𝑑. Since 𝑎, 𝑏, 𝑐, 𝑑 are distinct literals, we can deduce that the only possible
+2-clauses are (𝑎 ∨ 𝑏), (𝑏 ∨ 𝑐), (𝑎 ∨ 𝑑) and (𝑐 ∨ 𝑑). Eliminating symmetrically equivalent cases, by exhaustive
+search, we easily obtain only three distinct cases, namely Φ is of one of the three forms (1) (𝑎 ∨ 𝑏) ∧ (𝑐 ∨ 𝑑), (2)
+(𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑐 ∨ 𝑑), or (3) (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑎 ∨ 𝑑) ∧ (𝑐 ∨ 𝑑).
+□
+Observe that although 𝑎, 𝑏, 𝑐, 𝑑 are distinct literals, the variables are not necessarily distinct. For example, if
+𝑑 = ¬𝑎 then case (1) becomes (𝑎 ∨ 𝑏) ∧ (¬𝑎 ∨ 𝑐).
+Lemma 7. Suppose that a boolean formula Φ, expressible as a non-empty conjunction of 2-clauses, is also expressible
+as a non-empty disjunction of binary terms in which each pair of terms share a literal. Then either Φ is of the form
+Φ = 𝑎 ∧ Φ1 , where 𝑎 is a literal, or Φ is of the form (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑎 ∨ 𝑐).
+Proof. If Φ can be expressed as a disjunction of 2-terms with only one term or two terms (which share a
+literal), then Φ is of the form Φ = 𝑎 ∧ Φ1 , for some literal 𝑎. If Φ can be expressed as a disjunction of three distinct
+binary terms (where each pair of terms shares a literal), then Φ is of the form (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑎 ∨ 𝑐). There is
+no set of four distinct binary terms which satisfy the property that each pair shares a literal.
+□
+We now obtain the following characterisation theorem.
+Proposition 4. Let Φ be a boolean formula such that both Φ and ¬Φ are expressible as non-empty conjunctions
+of 2-clauses. Then Φ has one of the following forms (in which 𝑎, 𝑏, 𝑐, 𝑑 are distinct literals):
+(1) 𝑎,
+(2) 𝑎 ∨ 𝑏,
+(3) 𝑎 ∧ 𝑏,
+(4) 𝑎 ∧ (𝑏 ∨ 𝑐),
+(5) (𝑎 ∨ 𝑏) ∧ (𝑎 ∨ 𝑐),
+(6) (𝑎 ∨ 𝑏) ∧ (𝑐 ∨ 𝑑),
+(7) (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑐 ∨ 𝑑),
+(8) (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑎 ∨ 𝑐),
+(9) (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑎 ∨ 𝑑) ∧ (𝑐 ∨ 𝑑).
+Proof. By Lemma 2, we are interested in Φ that can be expressed as a conjunction of 2-clauses and a disjunction
+of 2-terms. If Φ, when written as a disjunction of 2-terms, has a unary term (i.e. Φ can be written in the form
+𝑎 ∨ Φ1 ), then Lemma 4 applies (cases (1), (2), (5)). If Φ can be expressed as a disjunction of binary terms, two of
+which share no literals, then Lemma 6 applies (cases (6), (7), (9)). If Φ can be expressed as a disjunction of binary
+terms, each pair of which share a literal, then Lemma 7 applies (case (8)). In the subcase of Lemma 7 in which Φ
+can be written in the form 𝑎 ∧ Φ1 , Lemma 5 applies (cases (1), (3), (4)).
+□
+The following corollary is simply a more succinct rewriting of Proposition 4.
+Corollary 2. If Φ is a boolean formula such that both Φ and ¬Φ are expressible as non-empty conjunctions of
+2-clauses, then Φ has one of the three following forms (in which the four literals are not necessarily distinct):
+
+564
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:14
+565
+566
+567
+568
+569
+570
+571
+572
+573
+574
+575
+576
+577
+578
+579
+580
+581
+582
+583
+584
+585
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+(i) (𝑎 ∨ 𝑏) ∧ (𝑐 ∨ 𝑑),
+(ii) (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑐 ∨ 𝑑),
+(iii) (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑎 ∨ 𝑑) ∧ (𝑐 ∨ 𝑑).
+Proof. We can obtain the nine cases listed in Proposition 4 as follows: (1) set 𝑎 = 𝑏 = 𝑐 in (iii), (2) set 𝑎 = 𝑐
+and 𝑏 = 𝑑 in (iii), (3) set 𝑎 = 𝑏 and 𝑐 = 𝑑 in (iii), (4) set 𝑎 = 𝑑 in (iii), (5) set 𝑎 = 𝑐 in (iii), (6) is case (i) (7) is case (ii),
+(8) set 𝑎 = 𝑑 in (ii), (9) is case (iii).
+□
+It is straightforward to verify that the converse to Corollary 2 holds, that is, any formula Φ satisfying at least
+one of items (i), (ii) or (iii) is such that both Φ and ¬Φ are expressible as conjunctions of 2-clauses. In the following,
+we use the name square 2CNF for formulas that are expressible as both conjunctions of 2-clauses and disjunctions
+of 2-terms (characterised in Proposition 4 and Corollary 2). The name reflects the fact these formulas are the
+subformulas of the square given by item (iii) of Corollary 2 (seeing literals 𝑎,𝑏,𝑐,𝑑 as vertices and clauses as edges).
+Observation 1. Square 2CNF formulas include all binary relations over boolean domains. For example, the
+relation 𝑎 ≠ 𝑏 can be obtained by setting 𝑐 = ¬𝑎 and 𝑑 = ¬𝑏 in (𝑎 ∨ 𝑏) ∧ (𝑐 ∨ 𝑑).
+Theorem 6. Let L be a boolean constraint language. The following are equivalent:
+(i) L has the polymorphism maj and is closed under taking complements
+(ii) Each relation in L is equivalent to a square 2CNF, i.e. either empty, complete, or expressible in one of the three
+following forms (in which the four literals are not necessarily distinct): (i) (𝑎 ∨ 𝑏) ∧ (𝑐 ∨ 𝑑), (ii) (𝑎 ∨ 𝑏) ∧ (𝑏 ∨
+𝑐) ∧ (𝑐 ∨ 𝑑), (iii) (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑎 ∨ 𝑑) ∧ (𝑐 ∨ 𝑑).
+
+586
+
+4.4
+
+587
+
+Bringing together what we have learnt in this section, we have the following theorem.
+
+588
+589
+590
+591
+592
+593
+594
+595
+596
+597
+598
+599
+600
+601
+602
+603
+604
+605
+606
+607
+608
+609
+610
+
+The Dichotomy for Boolean Languages
+
+Theorem 7. Let L be a finite boolean language closed under taking complements. Then, assuming P ≠ NP,
+wAXpDT(L) ∈ P iff at least one of the conditions holds:
+(1) Each relation in L is equivalent to a star-nested Horn formula
+(2) Each relation in L is equivalent to a star-nested anti-Horn formula
+(3) Each relation in L is equivalent to a linear equation over GF(2)
+(4) Each relation in L is equivalent to a square 2CNF formula.
+The requirement that L is finite in Theorem 7 arises from technicalities related to the representation of
+infinite languages. Indeed, certain degenerate representations for the relations of an infinite language L may be
+problematic from an algorithmic perspective. For example, the promise that the relations of L are equivalent to
+star-nested Horn formulas might not be sufficient to ensure tractability (or even membership in NP) if they are
+encoded in a way that makes even the most elementary relational operations NP-hard. However, this theorem
+is still true for infinite languages if one makes the mild assumptions that (i) relations equivalent to linear
+equations are always represented as such, and (ii) the representation used for relations equivalent to star-nested
+Horn/anti-Horn formulas allows for checking in polynomial time whether a given assignment extends to a tuple.
+Example 11. Consider the language L of Example 6, which consists of all 2-conjunctions of 2-clauses. Now, extend
+L with pseudo-boolean constraints 𝑎 + 𝑏 + 𝑐 ≥ 2 for any literals 𝑎, 𝑏, 𝑐, where summation is over Z. This larger
+language L ′ is closed under taking complements (the complement of 𝑎 + 𝑏 + 𝑐 ≥ 2 is ¬𝑎 + ¬𝑏 + ¬𝑐 ≥ 2), and all
+constraints in L ′ can be expressed as square 2CNF formulas because 𝑎 +𝑏 +𝑐 ≥ 2 ≡ (𝑎 ∨𝑏) ∧ (𝑏 ∨𝑐) ∧ (𝑐 ∨𝑎). Therefore,
+by Theorem 7 we have wAXpDT(L ′ ) ∈ P. However, no quaternary pseudo-boolean constraint 𝑎 + 𝑏 + 𝑐 + 𝑑 ≥ 𝑘 with
+1 ≤ 𝑘 < 4 can be expressed as a square 2CNF formula. In fact, adding any such constraint to L would cause the
+corresponding wAXpDT problem to become NP-complete by Theorem 7 as the resulting language would violate each
+of the four tractability conditions.
+
+611
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+612
+613
+614
+615
+616
+617
+618
+619
+620
+621
+622
+623
+
+5
+
+•
+
+0:15
+
+Extending the tractable boolean languages
+
+In this section we extend tractable languages to ordered domains of arbitrary finite size and prove a dichotomy
+for a restricted form of languages.
+Without loss of generality, and for simplicity of presentation, we assume that all features have the same domain
+𝐷 = {0, 1, . . . , 𝑑 − 1}.
+Recall that we call literals of the form 𝑥𝑖 ≥ 𝑎 or 𝑥𝑖 < 𝑎, where 𝑎 is a constant in 𝐷 \ {0}, unary inequality literals
+(UI-literals). We choose the convention that literals of the form 𝑥𝑖 ≥ 𝑎, where 𝑎 ∈ 𝐷 \ {0}, are positive UI-literals,
+whereas literals of the form 𝑥𝑖 < 𝑎 are negative UI-literals. The notions of (anti-)Horn clauses, star-nested
+(anti-)Horn formulas and square 2CNF all generalise in a natural way. For example, a UI-generalisation of a
+Horn clause is the disjunction of UI-literals, at most one of which is positive. We show in this section that the
+star-nested (anti-)Horn and square 2CNF languages generalise to tractable languages over domains of size 𝑑 ≥ 3,
+whereas the affine language does not.
+
+624
+625
+
+5.1
+
+626
+
+Definition 5. A constraint relation 𝑅 (over domains of arbirary finite size) is generalised square 2CNF if 𝑅 has
+one of the three following forms, where 𝑎, 𝑏, 𝑐, 𝑑 are (not necessarily distinct) UI-literals:
+(i) (𝑎 ∨ 𝑏) ∧ (𝑐 ∨ 𝑑),
+(ii) (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑐 ∨ 𝑑),
+(iii) (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑎 ∨ 𝑑) ∧ (𝑐 ∨ 𝑑)
+
+627
+628
+629
+630
+631
+632
+633
+634
+635
+636
+637
+638
+639
+640
+641
+642
+643
+644
+645
+646
+647
+648
+649
+650
+651
+652
+653
+654
+655
+656
+657
+
+Generalised square 2CNFs
+
+Example 12. All boolean functions of two UI-literals (i.e. the constraints studied in Example 8) are generalised
+square 2CNF. This follows directly from Observation 1. All constraints of the form (𝑥𝑖 ∈ [𝑝, 𝑞]) ∨ (𝑥 𝑗 ∈ [𝑟, 𝑠]) are
+also generalised square 2CNF since they can be obtained by setting 𝑎 = (𝑥𝑖 ≥ 𝑝), 𝑏 = (𝑥 𝑗 ≥ 𝑟 ), 𝑐 = (𝑥𝑖 < 𝑞+1) and
+𝑑 = (𝑥 𝑗 < 𝑠+1) in (𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑎 ∨ 𝑑) ∧ (𝑐 ∨ 𝑑).
+We denote by L𝐺𝑆 the language of generalised square 2CNF relations together with all unary constraints (i.e.
+constraints of the form 𝑥𝑖 ∈ 𝐴 where ∅ ⊂ 𝐴 ⊂ 𝐷).
+Lemma 8. L𝐺𝑆 is closed under taking complements.
+Proof. For unary constraints, this follows from the fact that ¬(𝑥𝑖 ∈ 𝐴) ≡ 𝑥𝑖 ∈ 𝐷 \ 𝐴 and ∅ ⊂ 𝐴 ⊂ 𝐷 implies
+∅ ⊂ (𝐷 \ 𝐴) ⊂ 𝐷. For generalised square 2CNF constraints, as in the boolean case, it follows from the identities:
+(i) ¬((𝑎 ∨ 𝑏) ∧ (𝑐 ∨ 𝑑)) ≡ (¬𝑎 ∨ ¬𝑐) ∧ (¬𝑏 ∨ ¬𝑐) ∧ (¬𝑎 ∨ ¬𝑑) ∧ (¬𝑏 ∨ ¬𝑑),
+(ii) ¬((𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑐 ∨ 𝑑)) ≡ (¬𝑎 ∨ ¬𝑐) ∧ (¬𝑏 ∨ ¬𝑐) ∧ (¬𝑏 ∨ ¬𝑑),
+(iii) ¬((𝑎 ∨ 𝑏) ∧ (𝑏 ∨ 𝑐) ∧ (𝑎 ∨ 𝑑) ∧ (𝑐 ∨ 𝑑)) ≡ (¬𝑎 ∨ ¬𝑐) ∧ (¬𝑏 ∨ ¬𝑑)
+□
+Proposition 5. wAXpDT(L𝐺𝑆 ) ∈ P.
+Proof. Clearly 𝐴𝑠𝑠𝑡 ⊆ L𝐺𝑆 since, by definition, L𝐺𝑆 contains all unary constraints. Given Proposition 1 and
+Lemma 8, it therefore suffices to show that CSP(L𝐺𝑆 ) ∈ P.
+Consider the ternary function med: 𝐷 3 → 𝐷 which returns the median value among its three arguments.
+We will show that med is a polymorphism of L𝐺𝑆 . Since med is conservative (that is, it always returns one of
+its arguments), it is a polymorphism of all unary constraints. It is well known that if two relations 𝑅1, 𝑅2 have
+the same polymorphism 𝑓 , then so does their join 𝑅1 Z 𝑅2 [32]. In the definition of generalised square 2CNF
+relations, the conjunction operation is equivalent to a join. Hence, to show that all generalised square 2CNF
+relations have the polymorphism med it suffices to show that 𝑎 ∨ 𝑏 has the polymorphism med where 𝑎 and 𝑏 are
+any UI-literals.
+
+658
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:16
+659
+660
+661
+662
+663
+664
+665
+666
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+Suppose that (𝑢 1, 𝑢 2 ), (𝑣 1, 𝑣 2 ), (𝑤 1, 𝑤 2 ) ∈ 𝑅, where 𝑅 = 𝑎 ∨ 𝑏 and 𝑎, 𝑏 are UI-literals on variables 𝑥 1, 𝑥 2 . Then at
+least two of these tuples must satisfy the same UI-literal. Without loss of generality, suppose that (𝑢 1, 𝑢 2 ), (𝑣 1, 𝑣 2 )
+both satisfy the literal on the variable 𝑥 1 . Now if this is a positive UI-literal, say 𝑥 1 ≥ 𝑝, then med(𝑢 1, 𝑣 1, 𝑤 1 ) ≥ 𝑝.
+Similarly, if it is a negative literal, say 𝑥 1 < 𝑞, then med(𝑢 1, 𝑣 1, 𝑤 1 ) < 𝑞. Hence 𝑎 ∨ 𝑏 has the polymorphism med
+for any UI-literals 𝑎, 𝑏, and so does L𝐺𝑆 .
+It is known that for constraint languages Γ with a majority polymorphism, such as med, CSP(Γ) can be solved
+in polynomial time by establishing strong 3-consistency [30]. This thus completes the proof that wAXpDT(L𝐺𝑆 )
+∈ P.
+□
+
+667
+668
+669
+670
+671
+672
+673
+674
+675
+676
+677
+678
+679
+680
+681
+
+5.2
+
+Generalised star-nested (anti-)Horn
+
+Definition 6. A constraint relation 𝑅 over domains of arbitrary finite size is generalised star-nested Horn if
+and only if there exist sets of UI-literals 𝐿 and ∅ = 𝑆 0 ⊂ 𝑆 1 ⊂ 𝑆 2 ⊂ . . . ⊂ 𝑆𝑞 such that
+• all UI-literals in 𝐿 are positive, and
+• all UI-literals in 𝑆𝑞 are negative, and
+
+Ô
+Ô
+• 𝑅 is the conjunction of clauses 𝐶 of the form 𝐶 = 𝑠 ∈𝑆𝑖 𝑠 or 𝐶 = 𝑙 ∨ 𝑠 ∈𝑆𝑖 𝑠 with 𝑙 ∈ 𝐿.
+A relation 𝑅 is generalised star-nested anti-Horn if replacing each UI-literal by its negation yields a generalised
+star-nested Horn relation.
+Example 13. A useful constraint that is generalised star-nested Horn is the constraint 𝑥𝑖 ≥ 𝑥 𝑗 . To see this, observe
+that 𝑥𝑖 ≥ 𝑥 𝑗 is equivalent to the non-existence of a value 𝑎 ∈ 𝐷 \ {0} such that 𝑥𝑖 < 𝑎 and 𝑥 𝑗 ≥ 𝑎. Hence
+!
+Û
+Û
+Ü
+
+𝑥𝑖 ≥ 𝑥 𝑗 ≡
+(𝑥𝑖 ≥ 𝑎) ∨ (𝑥 𝑗 < 𝑎) ≡
+(𝑥𝑖 ≥ 𝑎) ∨
+𝑠
+
+682
+683
+684
+685
+686
+687
+688
+689
+690
+691
+692
+693
+
+𝑎∈𝐷\{0}
+
+𝑠 ∈𝑆𝑎
+
+𝑎∈𝐷\{0}
+
+where 𝑆𝑎 = {𝑥 𝑗 < 1, . . . , 𝑥 𝑗 < 𝑎}. Clearly 𝑆 1 ⊂ . . . ⊂ 𝑆𝑑 −1 and so 𝑥𝑖 ≥ 𝑥 𝑗 satisfies the definition of a generalised
+star-nested Horn constraint.
+This argument can be generalised to a larger family
+ of constraints. Consider 𝑘 + 1 features 𝑥𝑖 , 𝑥 𝑗1 , . . . , 𝑥 𝑗𝑘 and a
+constraint of the form 𝑥𝑖 ≥ min 𝑓1 (𝑥 𝑗1 ), . . . , 𝑓𝑘 (𝑥 𝑗𝑘 ) where each function 𝑓𝑞 : N → N is nondecreasing. As above,
+this constraint is equivalent to the non-existence of 𝑎 ∈ 𝐷 \ {0} such that 𝑥𝑖 < 𝑎 and 𝑓𝑞 (𝑥 𝑗𝑞 ) ≥ 𝑎 for all 1 ≤ 𝑞 ≤ 𝑘. In
+order to express this condition as a formula over UI-literals, notice that for all 1 ≤ 𝑞 ≤ 𝑘 and 𝑎 ∈ 𝐷 \ {0} we have
+(
+true
+if 𝑓𝑞 (𝑑 − 1) < 𝑎
+𝑓𝑞 (𝑥 𝑗𝑞 ) < 𝑎 ≡ Ô
+(𝑥
+<
+𝑏
++
+1)
+otherwise.
+𝑏 ∈𝐷\{𝑑 −1}:𝑓𝑞 (𝑏 ) <𝑎 𝑗𝑞
+Finally, we obtain
+
+694
+695
+696
+697
+698
+699
+700
+701
+702
+
+!
+
+
+𝑥𝑖 ≥ min 𝑓1 (𝑥 𝑗1 ), . . . , 𝑓𝑘 (𝑥 𝑗𝑘 ) ≡
+
+Û
+𝑎∈𝐴
+
+𝑠
+
+𝑠 ∈𝑆𝑎
+
+where 𝐴 = {𝑎 ∈ 𝐷\{0} | ∀𝑞, 𝑓𝑞 (𝑑−1) ≥ 𝑎}, 𝑆𝑎 = 𝑆𝑎1 ∪. . .∪𝑆𝑎𝑘 and 𝑆𝑎𝑞 = {𝑥 𝑗𝑞 < 𝑏+1 | (0 ≤ 𝑏 < 𝑑−1)∧(𝑓𝑞 (𝑏) < 𝑎)}
+for all 𝑎 ∈ 𝐴 and 1 ≤ 𝑞 ≤ 𝑘. Each function is nondecreasing, so 𝑆𝑝 ⊂ 𝑆𝑞 whenever 𝑝 < 𝑞 and hence this constraint is
+generalised star-nested Horn.
+We denote by L𝐺𝐻 (respectively L𝐺𝐴 ) the language of generalised star-nested Horn (resp. anti-Horn) relations
+together with all unary constraints.
+
+703
+704
+
+(𝑥𝑖 ≥ 𝑎) ∨
+
+Ü
+
+Lemma 9. L𝐺𝐻 and L𝐺𝐴 are closed under taking complements.
+
+705
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+706
+707
+708
+709
+710
+711
+712
+713
+714
+715
+716
+717
+718
+719
+
+Proposition 6. wAXpDT(L𝐺𝐻 ) ∈ P and wAXpDT(L𝐺𝐴 ) ∈ P.
+Proof. We give the proof only for L𝐺𝐻 since the proof for L𝐺𝐴 is almost identical. Clearly 𝐴𝑠𝑠𝑡 ⊆ L𝐺𝐻 since,
+by definition, L𝐺𝐻 contains all unary constraints. Given Proposition 1 and Lemma 9, it therefore suffices to show
+that CSP(L𝐺𝐻 ) ∈ P.
+Consider the binary function min: 𝐷 2 → 𝐷 which returns the minimum value among its two arguments. As
+min always returns one of its arguments, it is a polymorphism of all unary constraints. Generalised star-nested
+Horn relations are joins (conjunctions) of Horn formulas on UI-literals. As in the proof of Proposition 5, to show
+that all generalised star-nested Horn relations have the polymorphism min, it suffices to show that a single Horn
+clause with UI-literals is min-closed.
+Suppose that (𝑢 1, . . . , 𝑢𝑟 ), (𝑣 1, . . . , 𝑣𝑟 ) ∈ 𝑅, where 𝑅 is given by the following Horn clause on UI-literals:
+(𝑥 1 < 𝑎 1 ) ∨ . . . ∨ (𝑥𝑟 −1 < 𝑎𝑟 −1 ) ∨ (𝑥𝑟 ≥ 𝑎𝑟 )
+
+721
+723
+724
+725
+726
+727
+728
+729
+730
+731
+732
+733
+734
+
+0:17
+
+Proof. For unary constraints, this follows from the fact that ¬(𝑥𝑖 ∈ 𝐴) ≡ 𝑥𝑖 ∈ 𝐷 \ 𝐴 and ∅ ⊂ 𝐴 ⊂ 𝐷 iff
+∅ ⊂ (𝐷 \ 𝐴) ⊂ 𝐷. For generalised star-nested (anti-)Horn constraints, the proof is identical to the proof of
+Proposition 2.
+□
+
+720
+722
+
+•
+
+If either of the tuples satisfies a negative literal, say 𝑢𝑖 < 𝑎𝑖 , then min(𝑢𝑖 , 𝑣𝑖 ) < 𝑎𝑖 . The only remaining case to
+consider is when both tuples satisfy the positive literal: in this case 𝑢𝑟 ≥ 𝑎𝑟 and 𝑣𝑟 ≥ 𝑎𝑟 , hence min(𝑢𝑟 , 𝑣𝑟 ) ≥ 𝑎𝑟 . The
+case in which 𝑅 has no positive literal is immediate. Hence any Horn clause on UI-literals have the polymorphism
+min, and so does L𝐺𝐻 .
+It is known that for constraint languages Γ with the polymorphism min, CSP(Γ) can be solved in polynomial
+time by establishing (generalised) arc consistency [32, 13]. This completes the proof that wAXpDT(L𝐺𝐻 ) ∈ P. □
+
+5.3
+
+A dichotomy for UI-generalisations of boolean languages
+
+We now consider a restricted class of languages over non-boolean domains for which we establish a complexity
+dichotomy. The languages we consider are natural extensions of boolean languages.
+Given a formula 𝜓 (𝑥 1, . . . , 𝑥𝑟 ) on boolean variables 𝑥 1, . . . , 𝑥𝑟 , the language obtained from 𝜓 by UI-generalisation
+(of its literals) is
+L𝜓𝑈 𝐼 = {𝜓 (𝑥 1 ≥ 𝑎 1, . . . , 𝑥𝑟 ≥ 𝑎𝑟 ) | 𝑎 1, . . . , 𝑎𝑟 ∈ 𝐷 \ {0}}
+(1)
+
+735
+736
+737
+738
+739
+740
+741
+742
+743
+744
+745
+746
+747
+748
+749
+750
+751
+
+i.e. L𝜓𝑈 𝐼 consists of all formulas obtained by replacing each occurrence of 𝑥𝑖 by some UI-literal 𝑥𝑖 ≥ 𝑎𝑖 , where each
+𝑎𝑖 can be any non-zero constant. Note that two logically equivalent formulas 𝜓 1,𝜓 2 necessarily give rise to the same
+languages L𝜓𝑈1𝐼 , L𝜓𝑈2𝐼 . Indeed, 𝜓 1 (𝑥 1 ≥ 𝑎 1, . . . , 𝑥𝑟 ≥ 𝑎𝑟 ) ≡ 𝜓 2 (𝑥 1 ≥ 𝑎 1, . . . , 𝑥𝑟 ≥ 𝑎𝑟 ) if 𝜓 1 (𝑥 1, . . . , 𝑥𝑟 ) ≡ 𝜓 2 (𝑥 1, . . . , 𝑥𝑟 ).
+Hence, we can write L𝑅𝑈 𝐼 for any constraint relation 𝑅 over boolean domains, since it is independent of the
+boolean formula used to express 𝑅.
+For a boolean language B, the language L𝑈B𝐼 obtained by UI-generalisation from B is given by
+Ø
+L𝑈B𝐼 =
+L𝑅𝑈 𝐼
+𝑅∈B
+
+Clearly, if B is closed under taking complements, then so is L𝑈B𝐼 : indeed, ¬(𝑅(𝑥 1 ≥ 𝑎 1, . . . , 𝑥𝑟 ≥ 𝑎𝑟 )) ≡ (¬𝑅) (𝑥 1 ≥
+𝑎 1, . . . , 𝑥𝑟 ≥ 𝑎𝑟 ) and B closed under taking complements means that 𝑅 ∈ B ⇒ (¬𝑅) ∈ B.
+In the definition of UI-generalisation in equation (1), each occurrence of the argument 𝑥𝑖 in the formula
+𝜓 (𝑥 1, . . . , 𝑥𝑟 ) is replaced by the same UI-literal 𝑥𝑖 ≥ 𝑎𝑖 . Observe, however, that we assume (implicitly) in the
+definition of the problems CSP(L) and wAXpDT(L) that constraints can be applied with repeated arguments. This
+allows us in CSP(L𝑈B𝐼 ) or wAXpDT(L𝑈B𝐼 ) to apply a constraint of the form 𝑅(𝑥 1 ≥ 𝑎 1, 𝑥 1 ≥ 𝑎 2, 𝑥 3 ≥ 𝑎 3, . . . , 𝑥𝑟 ≥ 𝑥𝑟 )
+where 𝑎 1 ≠ 𝑎 2 , by replacing the second argument 𝑥 2 of 𝑅 by the UI-literal 𝑥 1 ≥ 𝑎 2 .
+
+752
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:18
+753
+754
+755
+756
+757
+758
+759
+760
+761
+762
+763
+764
+765
+766
+767
+768
+769
+770
+771
+772
+773
+774
+775
+776
+777
+778
+779
+780
+781
+782
+783
+784
+785
+786
+787
+788
+789
+790
+791
+792
+793
+794
+795
+796
+797
+798
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+An important point is that not all languages of relations over a domain 𝐷 of size greater than 2 can be expressed
+as a language L𝑈B𝐼 for some boolean language B. A property of languages L𝑈B𝐼 obtained by UI-generalisation of
+boolean languages is that they are value-independent in the sense that L𝑈B𝐼 necessarily contains all relations
+𝑅(𝑥 1 ≥ 𝑎 1, . . . , 𝑥𝑟 ≥ 𝑎𝑟 ) for all (𝑎 1, . . . , 𝑎𝑟 ) ∈ (𝐷 \ {0})𝑟 for 𝑅 ∈ B. For example, if B is the language consisting of
+the single square 2CNF relation 𝑥 1 ∨ 𝑥 2 , then we do not consider the language consisting of the single relation
+(𝑥 1 ≥ 1) ∨ (𝑥 2 ≥ 1); instead L𝑅𝑈 𝐼 is {(𝑥 1 ≥ 𝑎 1 ) ∨ (𝑥 2 ≥ 𝑎 2 ) | 𝑎 1, 𝑎 2 ∈ 𝐷 \ {0}}.
+We now study the complexity of CSP(L𝑈B𝐼 ) for boolean languages B.
+Lemma 10. For boolean languages B, CSP(L𝑈B𝐼 ) ∈ P only if CSP(B) ∈ P.
+Proof. Let L 1B be the subset of L𝑈B𝐼 consisting of the relations 𝑅(𝑥 1 ≥ 1, . . . , 𝑥𝑟 ≥ 1) for all 𝑅 ∈ B. There is a
+direct polynomial reduction from CSP(B) to CSP(L 1B ) in which each constraint 𝑅(𝑥𝑖 1 , . . . , 𝑥𝑖𝑟 ) is replaced by the
+constraint 𝑅(𝑥𝑖 1 ≥1, . . . , 𝑥𝑖𝑟 ≥1). Hence CSP(L𝑈B𝐼 ) ∈ P implies that CSP(B) ∈ P.
+□
+This means that to identify all tractable languages L𝑈B𝐼 closed under taking complements, we only need
+to consider the four tractable boolean languages B closed under taking complements. For square 2CNF and
+star-nested (anti-)Horn tractability of wAXpDT follows from results we have already proved, as we show in the
+following proposition.
+Proposition 7. Let 𝑈 be the set of unary relations (of the form 𝑥𝑖 ∈ 𝐴 where ∅ ⊂ 𝐴 ⊂ 𝐷). Then wAXpDT(L𝑈B𝐼 )
+∈ P and wAXpDT(L𝑈B𝐼 ∪ 𝑈 ) ∈ P when B is any of the following boolean languages:
+(1) the language of square 2CNF relations,
+(2) the language of star-nested Horn relations,
+(3) the language of star-nested anti-Horn relations.
+Proof. We have already seen that B is closed under taking complements for the language of square 2CNF
+relations (Lemma 8 in the case of boolean domains), and the language of star-nested (anti-)Horn relations
+(Proposition 2). As observed above, if B is closed under taking complements, then so is L𝑈B𝐼 . We have already
+seen, in the proof of Lemma 8, that 𝑈 is closed under taking complements. It follows that all languages under
+consideration are closed under taking complements.
+When B is the language of square 2CNF relations, L𝑈B𝐼 ∪ 𝑈 ⊆ L𝐺𝑆 and so tractability of wAXpDT(L𝑈B𝐼 ∪ 𝑈 )
+(and wAXpDT(L𝑈B𝐼 )) follows from Proposition 5. When B is the language of star-nested Horn relations, L𝑈B𝐼 ∪ 𝑈
+⊆ L𝐺𝐻 and so tractability of wAXpDT(L𝑈B𝐼 ∪ 𝑈 ) (and wAXpDT(L𝑈B𝐼 )) follows from Proposition 6. When B is
+the language of star-nested anti-Horn relations, L𝑈B𝐼 ∪ 𝑈 ⊆ L𝐺𝐴 and so tractability of wAXpDT(L𝑈B𝐼 ∪ 𝑈 ) (and
+wAXpDT(L𝑈B𝐼 )) follows again from Proposition 6.
+□
+The only remaining boolean language to consider is the affine case, i.e. B the set of linear equations over GF(2).
+The relation obtained by UI-generalisation of the equation 𝑥 1 + 𝑥 2 + . . . + 𝑥𝑟 ≡ 𝑐 mod 2 is
+[𝑥 1 ≥ 𝑎 1 ] + [𝑥 2 ≥ 𝑎 2 ] + . . . + [𝑥𝑟 ≥ 𝑎𝑟 ] ≡ 𝑐
+
+mod 2
+
+(2)
+
+where [𝑃] equals 1 if 𝑃 is true, 0 otherwise. We call a relation of the form in equation (2), a UI-generalised affine
+relation. Recall that all affine constraints can be written in the form of the sum of positive literals 𝑥 1 +𝑥 2 +. . .+𝑥𝑟 ≡ 𝑐
+mod 2. For example, the constraint (¬𝑥 1 ) + 𝑥 2 + . . . + 𝑥𝑟 ≡ 𝑐 mod 2 is equivalent to 𝑥 1 + 𝑥 2 + . . . + 𝑥𝑟 ≡ 𝑐 + 1
+mod 2.
+Lemma 11. Let B be a boolean language composed of the single affine relation 𝑥 1 + 𝑥 2 + . . . + 𝑥𝑟 ≡ 𝑐 mod 2,
+where 𝑟 ≥ 3, and let L𝑈B𝐼 be the UI-generalisation of B to a domain of size 𝑑 ≥ 3. Then CSP(L𝑈B𝐼 ∪ 𝐴𝑠𝑠𝑡) is NP-hard.
+
+799
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+800
+801
+802
+803
+
+∃𝑦3, . . . , 𝑦𝑟
+
+( [𝑥𝑖 ≥ 𝑎] + [𝑥 𝑗 ≥ 𝑏] + [𝑦3 ≥ 1] + . . . + [𝑦𝑟 ≥ 1] ≡ 𝑐
+
+mod 2
+
+∧
+
+[𝑥𝑖 ≥ 𝑎+1] + [𝑥 𝑗 ≥ 𝑏+1] + [𝑦3 ≥ 1] + . . . + [𝑦𝑟 ≥ 1] ≡ 𝑐
+
+mod 2)
+
+This is equivalent to
+
+806
+807
+808
+
+[𝑥𝑖 ≥ 𝑎] + [𝑥 𝑗 ≥ 𝑏] ≡ [𝑥𝑖 ≥ 𝑎+1] + [𝑥 𝑗 ≥ 𝑏+1]
+
+811
+812
+813
+814
+815
+816
+
+mod 2
+
+which can be simplified to
+(𝑥𝑖 = 𝑎) ≡ (𝑥 𝑗 = 𝑏)
+
+809
+810
+
+0:19
+
+Proof. We demonstrate NP-hardness by reduction from 𝑑-coloring. To do this, it is sufficient to give a gadget
+that simulates the constraint 𝑥𝑖 ≠ 𝑥 𝑗 . Consider the gadget
+
+804
+805
+
+•
+
+In the above construction, when 𝑎 is the maximum element in the domain, 𝑥𝑖 ≥ 𝑎+1 is not a valid UI-literal. But,
+in this case, we replace it in the above gadget by the literal [𝑦1 ≥ 2] and we add the constraint 𝑦1 = 1 (which
+belongs to 𝐴𝑠𝑠𝑡). This has the same effect as 𝑥𝑖 ≥ 𝑎+1 which, of course, is always false. A similar remark holds
+when 𝑎 = 0. In this case, [𝑥𝑖 ≥ 𝑎] is not a valid UI-literal, but since it is always true we replace it by 𝑦1 ≥ 1 (where
+again we impose the assignment constraint 𝑦1 = 1). Clearly, similar adjustments will be necessary if 𝑏 = 𝑑 − 1 or
+𝑏 = 0.
+Now, for any 𝑎 ∈ 𝐷 \ {0}, we can choose a domain value 𝑎 ′ ≠ 𝑎 and we can construct the gadget
+
+817
+818
+819
+
+∃𝑧𝑘
+
+((𝑥𝑖 = 𝑎) ≡ (𝑧𝑘 = 𝑎)
+
+∧
+
+(𝑥 𝑗 = 𝑎) ≡ (𝑧𝑘 = 𝑎 ′ ))
+
+820
+
+This is equivalent to
+
+821
+
+(𝑥𝑖 ≠ 𝑎) ∨ (𝑥 𝑗 ≠ 𝑎)
+Ó
+The conjunction 𝑎∈𝐷 ((𝑥𝑖 ≠ 𝑎) ∨ (𝑥 𝑗 ≠ 𝑎)) is then equivalent to 𝑥𝑖 ≠ 𝑥 𝑗 . Thus we can construct the constraint
+𝑥𝑖 ≠ 𝑥 𝑗 and hence there is a polynomial reduction from 𝑑-coloring to CSP(L𝑈B𝐼 ).
+□
+
+822
+823
+824
+825
+
+This allows us to state the following dichotomy for UI-generalisations of boolean languages,
+
+826
+827
+828
+829
+830
+831
+832
+833
+
+Theorem 8. Let B be a finite boolean language closed under taking complements, and let 𝑈 be the set of unary
+relations (of the form 𝑥𝑖 ∈ 𝐴 where ∅ ⊂ 𝐴 ⊂ 𝐷). Assuming P ≠ NP, wAXpDT(L𝑈B𝐼 ∪ 𝑈 ) ∈ P iff B is a sublanguage
+of (at least) one of the following boolean languages:
+(1) the language of square 2CNF relations,
+(2) the language of star-nested Horn relations,
+(3) the language of star-nested anti-Horn relations.
+
+836
+
+Proof. The ‘if’ direction follows directly from Proposition 7. For the ‘only if’ direction, we first show that
+any binary UI-generalised affine relation is, in fact, equivalent to a generalised square 2CNF. The binary affine
+constraint [𝑥𝑖 ≥ 𝑎] + [𝑥 𝑗 ≥ 𝑏] ≡ 1 mod 2 is equivalent to the generalised square 2CNF:
+
+837
+
+((𝑥𝑖 ≥ 𝑎) ∨ (𝑥 𝑗 ≥ 𝑏)) ∧ ((𝑥𝑖 < 𝑎) ∨ (𝑥 𝑗 < 𝑏))
+
+834
+835
+
+838
+839
+840
+841
+842
+843
+844
+845
+
+and the other binary affine constraint [𝑥𝑖 ≥ 𝑎] + [𝑥 𝑗 ≥ 𝑏] ≡ 0 mod 2 is equivalent to the generalised square
+2CNF:
+((𝑥𝑖 ≥ 𝑎) ∨ (𝑥 𝑗 < 𝑏)) ∧ ((𝑥𝑖 < 𝑎) ∨ (𝑥 𝑗 ≥ 𝑏))
+Unary affine constraints are of course unary constraints. Thus, by Lemma 11, the largest subset L of UI-generalised
+affine relations such that CSP(L) is not NP-hard, is actually a sublanguange of L𝑈B𝑆𝐼 ∪ 𝑈 where B𝑆 is the boolean
+language of square 2CNF relations. Thus, the ‘only if’ direction then follows from Theorem 7 (the dichotomy for
+boolean languages) together with Lemma 10.
+□
+
+846
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:20
+847
+848
+849
+850
+851
+852
+853
+854
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+We now revisit the notion of contrastive explanation (CXp). Recall that a CXp a minimal set of features which
+can be changed in order to change the class. From Definition 3, it is clear that being a weak CXp is a monotone
+property. Hence, we can deduce from Lemma 1 that to find a CXp in polynomial time, it is sufficient to be able to
+test whether a set of features is a weak CXp in polynomial time. We therefore concentrate on this latter problem.
+Let wCXpDT(L) denote the problem of deciding whether a set of features is a weak CXp for a given decision
+taken by an MDT in L-DT. Let 𝐹 denote the set of features. It follows immediately from the definitions of weak
+AXp and weak CXp that a set 𝑆 is a weak CXp iff 𝐹 \ 𝑆 is not a weak AXp. This implies that the wAXpDT(L) ∈ P
+iff wCXpDT(L) ∈ P, from which we have the following theorem.
+
+855
+856
+857
+858
+
+Theorem 9. Let B be a finite boolean language closed under taking complements, and let 𝑈 be the set of unary
+relations (of the form 𝑥𝑖 ∈ 𝐴 where ∅ ⊂ 𝐴 ⊂ 𝐷). Assuming P ≠ NP, wCXpDT(L𝑈B𝐼 ∪ 𝑈 ) ∈ P iff B is a sublanguage
+of (at least) one of the following boolean languages:
+
+859
+
+(1) the language of square 2CNF relations,
+(2) the language of star-nested Horn relations,
+(3) the language of star-nested anti-Horn relations.
+
+860
+861
+862
+863
+864
+865
+866
+867
+868
+869
+870
+871
+872
+873
+874
+875
+876
+877
+878
+879
+880
+881
+882
+883
+884
+885
+886
+887
+888
+889
+890
+891
+892
+
+6
+
+Experimental trials
+
+An important question is whether there is a real advantage in using MDTs rather than DTs. When comparing
+their relative merits, obvious criteria are the accuracy of the model and the computational resources required to
+learn the model, to query it and to produce explanations. One should also take into account the interpretability
+of explanations that are produced for predictions. For example, there may be a trade-off between accuracy and
+concision of explanations.
+In order to guarantee tractability of finding an explanation, we chose to study MDTs whose conditions belong
+to the language of generalised square 2CNFs. To ensure the feasibility of building a model, we limited ourselves
+to constraints concerning just one or two finite-domain features. In other words, we consider the language of
+constraints described in Example 8 and illustrated in Figure 4. In order to perform a fair comparison between
+MDTs and DTs, we chose to compare the accuracy of MDTs and DTs for which average sizes of explanations are
+expected to be equal. Our experimental trials indicated that there is no statistically significant difference between
+the accuracy of depth-5 MDTs and depth-7 DTs. As we explain in detail below, the depths 5 and 7 were chosen so
+as to have, on average, the same size of explanations. A direct conclusion is that MDTs can provide more compact
+models with the same performance (in terms of accuracy and explanation-size) as DTs.
+We now describe in more detail our experiments. There are exactly ten truly binary boolean functions (i.e. not
+equivalent to constant or unary functions) on two boolean arguments, namely the following five functions and
+their complements: 𝑓1 (𝑥, 𝑦) = 𝑥 ∨ 𝑦, 𝑓2 (𝑥, 𝑦) = ¬𝑥 ∨ 𝑦, 𝑓3 (𝑥, 𝑦) = 𝑥 ∨ ¬𝑦, 𝑓4 (𝑥, 𝑦) = ¬𝑥 ∨ ¬𝑦, 𝑓5 (𝑥, 𝑦) = 𝑥 ⊕ 𝑦 (i.e.
+the exclusive or of 𝑥 and 𝑦). All these functions are square 2CNFs. Under a uniform distribution of the values of
+the arguments 𝑥, 𝑦, 𝑓𝑖 (𝑥, 𝑦) has a probability of 1/4 of being 0 and 3/4 of being 1 (𝑖 = 1, . . . , 4) whereas 𝑓5 (𝑥, 𝑦)
+has a probability of 1/2 of being either 0 or 1. Consider a node in an MDT whose constraint is 𝑙 1 ∨ 𝑙 2 , for some
+literals 𝑙 1, 𝑙 2 . It has two child nodes corresponding respectively to the disjunction 𝑙 1 ∨ 𝑙 2 and its complement, the
+conjunction ¬𝑙 1 ∧ ¬𝑙 2 . The explanation for taking the disjunctive branch is the feature associated with the literal
+which is true (or an arbitrary choice if both 𝑙 1, 𝑙 2 are true). The explanation for taking the conjunctive branch
+¬𝑙 1 ∧ ¬𝑙 2 is both features. In the case of an exclusive or, the explanation for taking either branch requires both
+features. Assuming that the five functions 𝑓1, . . . , 𝑓5 are equally likely to occur as constraints in an MDT, the
+probability that we require only one feature to explain which branch was taken is (4/5) · (3/4) = 3/5 (since 4 out
+of 5 of the functions 𝑓𝑖 have a disjunctive branch, and as observed above there is a 3/4 chance that this is the
+branch that is taken).
+
+893
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+894
+895
+896
+897
+898
+899
+900
+901
+902
+903
+904
+905
+906
+907
+908
+909
+910
+911
+912
+913
+914
+915
+916
+917
+918
+919
+920
+921
+922
+923
+924
+925
+926
+927
+928
+929
+930
+931
+932
+933
+934
+935
+936
+
+•
+
+0:21
+
+As a first approximation to compare explanation size for decisions taken by MDTs and DTs, we can simply
+estimate the size of a weak AXp corresponding to the path from the root to a leaf, assuming that all features
+encountered along a path are distinct. In a DT the size of this weak AXp is equal to the length of the path. As
+we have seen above, in an MDT every disjunctive branch along the path contributes one feature and every
+conjunctive branch or exclusive-or branch contributes two features. An MDT may also contain unary constraints,
+but since there are much fewer unary constraints than binary constraints (a linear number rather than a quadratic
+number), we consider that unary constraints are rare (which was confirmed by our experiments) and can hence be
+ignored in the approximate calculation of expected explanation size. Let 𝑑 DT and 𝑑 MDT be, respectively, the depths
+of the DT and MDT. We have seen above that each edge in an MDT contributes one feature with probability 3/5
+and two features with probability 1 − 3/5 = 2/5. This means that the weak AXp corresponding to a path from the
+root to a leaf in an MDT will contain, on average, 𝑑 MDT (3/5 + 2 · (2/5)) = 𝑑 MDT · (7/5) features, compared to the
+𝑑 DT features for a DT. Thus, in order to make a fair comparison, we decided to build MDTs of depth 5 and DTs of
+depth 7, so that the resulting AXp’s can be expected to be of the same average length.
+We used Blossom [20], a program that searches for optimal DTs and which importantly has a good anytime
+performance, in the sense that good-quality trees are found even if the program times out. Blossom is designed
+to build DTs, so to learn MDTs we opted for a simple solution consisting of effectively adding new features
+corresponding to 𝑓𝑖 (𝑥, 𝑦) (𝑖 = 1, . . . , 5) for each pair of distinct features 𝑥, 𝑦. The DTs thus constructed are clearly
+equivalent to MDTs on the original features. Given the large increase in the number of features (the larger data
+set have millions of features standing for binary tests), a guarantee of optimality was rarely achieved for the
+MDTs. Blossom was stopped after 10 minutes of computation time in every case.
+The experiments were run on a computing cluster containing 780 CPUs operated with Ubuntu 20.04. LTS and
+Slurm 20.11.4, although each run was a single thread limited to 10 minutes of CPU time. Blossom was run with
+its default parameters, in particular, it uses Gini impurity [8] to guide the search, and implements preprocessing
+of the data set which was highly relevant given the size of the expanded data sets. All code and data necessary to
+reproduce the experiments is available in a repository2 .
+We used datasets from the UCI repository [35] (listed in Table 1). The columns “unary” and “binary” features in
+this table indicate the original number of features and the number of possible binary test in the chosen language.
+Although the complexity of the method scales exponentially in this parameter3 , its good anytime behavior makes
+it possible to learn high quality trees. For each data set, we splitted the instances with uniform probability between
+the training and test set, to a ratio of 4 to 1, respectively. A DT of maximum depth 7 and an MDT of maximum
+depth 5 were built for each dataset. We then compared accuracy (on the test set) and the size of the weak AXp’s
+corresponding to the path followed by the instance to be explained. This operation was repeated 10 times for
+every data set with distinct random seeds resulting in 10 distinct partitions, and the values reported in Table 1
+are the averages over these 10 runs.
+Although the DTs were deeper, the average accuracy for MDTs was slightly better (although the difference
+was not found to be statistically significant on any particular dataset). Explanation sizes were found to be similar
+for the DTs and the MDTs, which was to be expected given our choice of depth-5 MDTs and depth-7 DTs, as
+explained above. However, a definite advantage of the MDTs was their relative compactness: complete depth-5
+MDTs have 4 times less nodes than complete depth-7 DTs and in our experiments the depth-5 MDTs had on
+average 3 times less nodes than the depth-7 DTs. Since there are more opportunities for pruning in depth-7 trees
+than in depth-5 trees, it is to be expected that the ratio of 4 is not reached.
+Thus, our experiments indicate that an MDT can provide a more compact model than a DT with similar
+accuracy and interpretability (in terms of the number of features required to explain decisions).
+
+937
+938
+
+2 https://gitlab.laas.fr/roc/emmanuel-hebrard/mdt-experiments
+
+939
+
+3 It scales linearly with the number of instances, which is thus irrelevant here.
+
+940
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:22
+941
+942
+943
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+982
+
+car_evaluation-bin
+balance-scale-bin
+car-un
+compas_discretized
+tic-tac-toe
+banknote-bin
+primary-tumor
+winequality-red-bin
+IndiansDiabetes-bin
+vote
+soybean
+adult_discretized
+hepatitis
+lymph
+HTRU_2-bin
+kr-vs-kp
+messidor-bin
+magic04-bin
+hypothyroid
+breast-cancer-un
+yeast
+seismic_bumps-bin
+anneal
+heart-cleveland
+german-credit
+diabetes
+mushroom
+breast-wisconsin
+australian-credit
+audiology
+taiwan_binarised
+bank_conv-bin
+pendigits
+letter
+segment
+letter_recognition-bin
+vehicle
+splice-1
+biodeg-bin
+titanic-un
+spambase-bin
+ionosphere
+Statlog_satellite-bin
+forest-fires-un
+wine1-un
+wine2-un
+wine3-un
+
+983
+
+average
+
+944
+945
+946
+947
+948
+949
+950
+951
+952
+953
+954
+955
+956
+957
+958
+959
+960
+961
+962
+963
+964
+965
+966
+967
+968
+969
+970
+971
+972
+973
+974
+975
+976
+977
+978
+979
+980
+981
+
+984
+985
+
+# features
+
+data set
+
+test accuracy
+
+tree size
+
+expl. length
+
+unary
+
+binary
+
+DT
+
+MDT
+
+DT
+
+MDT
+
+DT
+
+MDT
+
+14
+16
+21
+25
+27
+28
+31
+42
+43
+48
+50
+59
+68
+68
+70
+73
+86
+86
+88
+89
+89
+91
+93
+95
+112
+112
+119
+120
+125
+148
+205
+212
+216
+224
+235
+240
+252
+287
+304
+333
+386
+445
+539
+989
+1276
+1276
+1276
+
+455
+600
+1050
+1500
+1755
+1890
+2325
+4305
+4515
+5640
+6125
+8555
+11390
+11390
+12075
+13140
+18275
+18275
+19140
+19580
+19580
+20475
+21390
+22325
+31080
+31080
+35105
+35700
+38750
+54390
+104550
+111830
+116100
+124880
+137475
+143400
+158130
+205205
+230280
+276390
+371525
+493950
+724955
+2442830
+4067250
+4067250
+4067250
+
+0.9165
+0.7849
+0.9668
+0.6612
+0.9705
+0.9862
+0.7426
+0.9859
+0.6539
+0.9420
+0.9386
+0.8540
+0.7276
+0.8194
+0.9760
+0.9836
+0.6364
+0.8457
+0.9743
+0.9380
+0.6980
+0.8992
+0.8681
+0.7367
+0.6805
+0.6630
+1.0000
+0.9328
+0.8220
+0.9295
+0.8130
+0.8961
+0.9970
+0.9915
+0.9991
+0.9941
+0.9482
+0.9447
+0.8354
+0.7904
+0.8772
+0.8789
+0.9660
+0.5269
+0.6417
+0.6730
+0.7278
+
+0.9150
+0.8373
+0.9734
+0.6667
+0.9378
+0.9876
+0.7603
+0.9884
+0.7162
+0.9489
+0.9488
+0.8550
+0.7862
+0.8677
+0.9778
+0.9908
+0.6450
+0.8453
+0.9775
+0.9438
+0.7208
+0.9153
+0.8687
+0.7650
+0.6950
+0.7221
+1.0000
+0.9526
+0.8265
+0.9227
+0.8167
+0.8966
+0.9963
+0.9891
+0.9998
+0.9949
+0.9524
+0.9589
+0.8340
+0.8163
+0.8765
+0.8732
+0.9694
+0.5635
+0.6361
+0.6703
+0.6722
+
+35.1
+76.8
+58.0
+102.1
+39.8
+19.7
+41.5
+13.5
+114.9
+15.9
+27.9
+87.0
+12.5
+14.0
+100.2
+35.2
+85.1
+125.0
+52.5
+25.4
+87.4
+102.8
+51.1
+31.1
+96.0
+107.4
+7.8
+18.3
+59.7
+7.4
+121.7
+88.0
+19.9
+81.1
+5.0
+50.9
+26.2
+57.5
+72.4
+66.8
+75.1
+19.8
+58.4
+31.2
+12.0
+12.8
+13.7
+
+13.6
+23.8
+14.9
+30.9
+20.2
+11.8
+21.2
+8.9
+27.5
+10.8
+11.9
+24.7
+8.7
+7.7
+24.1
+14.9
+28.3
+31.0
+19.1
+12.8
+26.5
+21.3
+15.2
+18.5
+24.8
+26.1
+4.0
+11.1
+19.9
+4.3
+30.3
+28.3
+14.7
+17.7
+3.0
+13.9
+13.2
+21.8
+23.2
+21.5
+21.8
+12.2
+19.0
+12.3
+6.2
+7.3
+6.9
+
+1.36
+2.66
+2.93
+5.40
+2.23
+1.23
+1.96
+1.25
+5.64
+1.73
+1.87
+6.16
+1.30
+1.37
+5.28
+1.88
+6.54
+7.49
+3.51
+1.07
+4.45
+5.17
+4.25
+2.59
+5.87
+6.57
+0.29
+1.82
+3.66
+1.19
+8.09
+5.46
+2.09
+4.74
+1.69
+3.89
+2.41
+4.60
+5.22
+3.98
+6.58
+1.37
+3.57
+1.39
+0.07
+0.25
+0.45
+
+1.30
+3.46
+1.23
+5.09
+3.92
+1.89
+4.01
+2.44
+5.02
+2.11
+3.10
+4.92
+1.99
+2.24
+4.33
+2.94
+4.91
+5.56
+2.69
+1.45
+4.87
+4.41
+1.77
+3.89
+4.73
+4.62
+1.00
+2.93
+4.07
+0.96
+5.30
+5.31
+3.27
+3.29
+1.12
+3.33
+3.38
+4.77
+3.82
+4.35
+4.26
+2.29
+3.54
+1.49
+0.28
+0.73
+0.61
+
+0.8518
+
+0.8612
+
+52.4
+
+17.3
+
+3.29
+
+3.17
+
+Table 1. Comparison of DTs and MDTs learnt by Blossom.
+
+986
+987
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+988
+989
+990
+991
+992
+993
+994
+995
+996
+997
+998
+999
+1000
+1001
+1002
+1003
+1004
+1005
+1006
+1007
+1008
+1009
+1010
+1011
+1012
+1013
+1014
+1015
+1016
+1017
+1018
+1019
+1020
+
+7
+
+•
+
+0:23
+
+Conclusion
+
+We have shown the close link between classes of multivariate decision trees for which decisions can be explained
+in polynomial time and tractable constraint languages closed under complement. We have shown that tractable
+explainability applies to existing and well-studied classes of MDTs, such as oblique DTs over real domains, but
+also to novel classes of MDTs over finite domains. Such novel classes provide generalisations of classical DTs in
+that branching is possible not only on the value of a single variable but also according to specific (non-linear)
+conditions on two or more variables.
+Interesting open questions concern the continued evaluation of the practical utility [12, 37] as well as the
+theoretical computational power of such generalised DTs. There is a rich history of the study of MDTs with linear
+conditions as a computational model, such as bounds on the depth of such decision trees to test the equality of
+two sets [43]. An avenue of future work is a similar theoretical study of the computational power of MDTs with
+(generalised) star-nested Horn constraints (studied in Section 4.1 and Section 5.1), or (generalised) square 2CNF
+formulas (studied in Section 4.3 and Section 5.2) to determine whether there is a substantial theoretical gain in
+depth or size when compared with classical DTs. Our experiments on a sublanguage of generalised square 2CNFs
+indicate that MDTs are more compact than DTs with the same accuracy and average explanation-lengths.
+Another avenue of future research is the investigation of algorithms for learning MDTs with (generalised)
+star-nested Horn constraints or (generalised) square 2CNF formulas. Examples 12 and 13 show that we can
+extend classical univariate DTs by adding bivariate constraints either of the form 𝑥𝑖 ∈ [𝑝, 𝑞] ∨ 𝑥 𝑗 ∈ [𝑟, 𝑠] or of the
+form 𝑥𝑖 ≥ 𝑥 𝑗 , while retaining tractable explainability. This may be a useful compromise between the expressive
+power of the constraint language and the learnability of the corresponding class of MDTs. In our experiments we
+used a learning algorithm based on a complete search for an optimal tree of bounded depth [20]. Alternative
+approaches are possible, inspired by methods for learning oblique DTs, such as a classical top-down greedy
+approach for recursively splitting nodes (possibly followed by a pruning step) [25, 41, 48], a bottom-up approach
+using clustering [5] or the successive optimisation of the split conditions at nodes [16, 24]. It is known that finding
+an optimal splitting hyperplane at a node of an oblique DT is NP-hard [25, 41]. An open theoretical question is
+the complexity of finding an optimal split at a node among (generalised) star-nested (anti-)Horn relations.
+Our P/NP-hard dichotomy for boolean languages closed under complement is an interesting theoretical result
+which may find applications in other domains. Our generalisation of this dichotomy to boolean formulas of
+UI-literals can be seen as a foundation on which to build a future characterisation of all tractable finite-domain
+languages closed under complement.
+An independent question is the so-called recognition problem: given an arbitrary multivariate DT, determine
+whether the set of constraints it uses is a sublanguage of one of the tractable languages we have identified. It is
+reasonable to assume that this problem would be solved off-line, if at all.
+
+1021
+1022
+
+Acknowledgments
+
+1023
+
+This work was supported by the AI Interdisciplinary Institute ANITI, funded by the French program “Investing
+for the Future – PIA3” under grant agreement no. ANR-19-PI3A-0004 and by the ForML research project ANR-23CE25-0009.
+
+1024
+1025
+1026
+1027
+1028
+
+References
+[1]
+
+1029
+1030
+
+[2]
+
+1031
+1032
+1033
+
+[3]
+
+L. Amgoud and J. Ben-Naim. 2022. Axiomatic foundations of explainability. In IJCAI. L. D. Raedt, (Ed.) ijcai.org, 636–642. doi:
+10.24963/ijcai.2022/90.
+M. Arenas, P. Barceló, M. A. R. Orth, and B. Subercaseaux. 2022. On computing probabilistic explanations for decision trees. In NeurIPS.
+S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh, (Eds.)
+G. Audemard, S. Bellart, L. Bounia, F. Koriche, J. Lagniez, and P. Marquis. 2022. On the explanatory power of boolean decision trees.
+Data Knowl. Eng., 142, 102088. doi: 10.1016/j.datak.2022.102088.
+
+1034
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+1035
+
+0:24
+
+•
+
+[4]
+
+P. Barceló, M. Monet, J. Pérez, and B. Subercaseaux. 2020. Model interpretability through the lens of computational complexity. In
+NeurIPS. H. Larochelle, M. Ranzato, R. Hadsell, M. Balcan, and H. Lin, (Eds.) https://proceedings.neurips.cc/paper/2020/hash/b1adda14
+824f50ef24ff1c05bb66faf3-Abstract.html.
+R. C. Barros, P. A. Jaskowiak, R. Cerri, and A. C. P. de Leon Ferreira de Carvalho. 2014. A framework for bottom-up induction of
+oblique decision trees. Neurocomputing, 135, 3–12. doi: 10.1016/j.neucom.2013.01.067.
+S. Bassan, G. Amir, and G. Katz. 2024. Local vs. global interpretability: A computational complexity perspective. In Forty-first
+International Conference on Machine Learning, ICML. OpenReview.net. https://openreview.net/forum?id=veEjiN2w9F.
+F. Bollwein and S. Westphal. 2021. A branch & bound algorithm to determine optimal bivariate splits for oblique decision tree induction.
+Appl. Intell., 51, 10, 7552–7572. https://doi.org/10.1007/s10489-021-02281-x.
+L. Breiman, J. Friedman, R. Olshen, and C. Stone. 1984. Classification and Regression Trees. Wadsworth & Brooks.
+C. E. Brodley and P. E. Utgoff. 1995. Multivariate decision trees. Mach. Learn., 19, 1, 45–77. doi: 10.1007/BF00994660.
+A. A. Bulatov. 2017. A dichotomy theorem for nonuniform csps. In FOCS. C. Umans, (Ed.) IEEE Computer Society, 319–330. doi:
+10.1109/FOCS.2017.37.
+M. Calautti, E. Malizia, and C. Molinaro. 2025. On the complexity of global necessary reasons to explain classification. CoRR,
+abs/2501.06766.
+L. Cañete-Sifuentes, R. Monroy, and M. A. Medina-Pérez. 2021. A review and experimental comparison of multivariate decision trees.
+IEEE Access, 9, 110451–110479. doi: 10.1109/ACCESS.2021.3102239.
+C. Carbonnel and M. C. Cooper. 2016. Tractability in constraint satisfaction problems: a survey. Constraints An Int. J., 21, 2, 115–144.
+doi: 10.1007/S10601-015-9198-6.
+C. Carbonnel, M. C. Cooper, and J. Marques-Silva. 2023. Tractable explaining of multivariate decision trees. In KR 2023. P. Marquis,
+T. C. Son, and G. Kern-Isberner, (Eds.), 127–135. doi: 10.24963/KR.2023/13.
+M. Á. Carreira-Perpiñán and S. S. Hada. 2021. Counterfactual explanations for oblique decision trees: exact, efficient algorithms. In
+AAAI. AAAI Press, 6903–6911. https://ojs.aaai.org/index.php/AAAI/article/view/16851.
+M. Á. Carreira-Perpiñán and P. Tavallali. 2018. Alternating optimization of decision trees, with application to learning sparse
+oblique trees. In NeurIPS. S. Bengio, H. M. Wallach, H. Larochelle, K. Grauman, N. Cesa-Bianchi, and R. Garnett, (Eds.), 1219–1229.
+https://proceedings.neurips.cc/paper/2018/hash/185c29dc24325934ee377cfda20e414c-Abstract.html.
+Z. Chen and S. Toda. 1995. The complexity of selecting maximal solutions. Inf. Comput., 119, 2, 231–239. doi: 10.1006/inco.1995.1087.
+M. C. Cooper, D. A. Cohen, and P. Jeavons. 1994. Characterising tractable constraints. Artif. Intell., 65, 2, 347–361. doi: 10.1016/0004-37
+02(94)90021-3.
+M. C. Cooper and J. Marques-Silva. 2023. Tractability of explaining classifier decisions. Artif. Intell., 316.
+E. Demirovic, E. Hebrard, and L. Jean. 2023. Blossom: an anytime algorithm for computing optimal decision trees. In International
+Conference on Machine Learning, ICML 2023, 23-29 July 2023, Honolulu, Hawaii, USA (Proceedings of Machine Learning Research).
+A. Krause, E. Brunskill, K. Cho, B. Engelhardt, S. Sabato, and J. Scarlett, (Eds.) Vol. 202. PMLR, 7533–7562. https://proceedings.mlr.pres
+s/v202/demirovic23a.html.
+Y. Dhebar, K. Deb, S. Nageshrao, L. Zhu, and D. Filev. 2024. Toward interpretable-ai policies using evolutionary nonlinear decision
+trees for discrete-action systems. IEEE Transactions on Cybernetics, 54, 1, 50–62. doi: 10.1109/TCYB.2022.3180664.
+J. H. Good, T. Kovach, K. Miller, and A. Dubrawski. 2023. Feature learning for interpretable, performant decision trees. In NeurIPS.
+A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and S. Levine, (Eds.)
+R. Guidotti, A. Monreale, S. Ruggieri, F. Turini, F. Giannotti, and D. Pedreschi. 2019. A survey of methods for explaining black box
+models. ACM Comput. Surv., 51, 5, 93:1–93:42. doi: 10.1145/3236009.
+S. S. Hada, M. Á. Carreira-Perpiñán, and A. Zharmagambetov. 2024. Sparse oblique decision trees: a tool to understand and manipulate
+neural net features. Data Min. Knowl. Discov., 38, 5, 2863–2902.
+D. G. Heath, S. Kasif, and S. Salzberg. 1993. Induction of oblique decision trees. In IJCAI. R. Bajcsy, (Ed.) Morgan Kaufmann, 1002–1007.
+X. Huang, Y. Izza, A. Ignatiev, M. C. Cooper, N. Asher, and J. Marques-Silva. 2022. Tractable explanations for d-DNNF classifiers. In
+AAAI. AAAI Press, 5719–5728. https://ojs.aaai.org/index.php/AAAI/article/view/20514.
+A. Ignatiev, N. Narodytska, N. Asher, and J. Marques-Silva. 2020. From contrastive to abductive explanations and back again. In AIxIA
+2020 - Advances in Artificial Intelligence (Lecture Notes in Computer Science). M. Baldoni and S. Bandini, (Eds.) Vol. 12414. Springer,
+335–355.
+A. Ignatiev, N. Narodytska, and J. Marques-Silva. 2019. Abduction-based explanations for machine learning models. In AAAI. AAAI
+Press, 1511–1519. doi: 10.1609/aaai.v33i01.33011511.
+Y. Izza, A. Ignatiev, and J. Marques-Silva. 2022. On tackling explanation redundancy in decision trees. J. Artif. Intell. Res., 75, 261–321.
+doi: 10.1613/jair.1.13575.
+P. Jeavons, D. A. Cohen, and M. C. Cooper. 1998. Constraints, consistency and closure. Artif. Intell., 101, 1-2, 251–265. doi: 10.1016/S00
+04-3702(98)00022-8.
+
+1036
+1037
+1038
+1039
+
+[5]
+[6]
+
+1040
+1041
+1042
+1043
+1044
+
+[7]
+[8]
+[9]
+[10]
+
+1045
+1046
+1047
+1048
+1049
+
+[11]
+[12]
+[13]
+
+1050
+1051
+1052
+1053
+1054
+
+[14]
+[15]
+[16]
+
+1055
+1056
+1057
+1058
+1059
+1060
+
+[17]
+[18]
+[19]
+[20]
+
+1061
+1062
+1063
+
+[21]
+
+1064
+1065
+
+[22]
+
+1066
+1067
+1068
+
+[23]
+[24]
+
+1069
+1070
+1071
+1072
+1073
+
+[25]
+[26]
+[27]
+
+1074
+1075
+
+[28]
+
+1076
+1077
+1078
+1079
+
+[29]
+[30]
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+1080
+1081
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+1082
+
+•
+
+0:25
+
+[50]
+
+P. Jeavons, D. A. Cohen, and M. Gyssens. 1995. A unifying framework for tractable constraints. In Principles and Practice of Constraint
+Programming - CP’95 (LNCS). U. Montanari and F. Rossi, (Eds.) Vol. 976. Springer, 276–291. doi: 10.1007/3-540-60299-2\_17.
+P. Jeavons, D. A. Cohen, and M. Gyssens. 1997. Closure properties of constraints. J. ACM, 44, 4, 527–548. doi: 10.1145/263867.263489.
+P. Jeavons and M. C. Cooper. 1995. Tractable constraints on ordered domains. Artif. Intell., 79, 2, 327–339. doi: 10.1016/0004-3702(95)00
+107-7.
+R. Kairgeldin and M. Á. Carreira-Perpiñán. 2024. Bivariate decision trees: smaller, interpretable, more accurate. In KDD. R. Baeza-Yates
+and F. Bonchi, (Eds.) ACM, 1336–1347.
+M. Kelly, R. Longjohn, and K. Nottingham. [n. d.] The UCI machine learning repository, https://archive.ics.uci.edu. ().
+S. K. Lahiri and M. Musuvathi. 2005. An efficient decision procedure for UTVPI constraints. In Frontiers of Combining Systems, 5th
+International Workshop (Lecture Notes in Computer Science). B. Gramlich, (Ed.) Vol. 3717. Springer, 168–183. doi: 10.1007/11559306\_9.
+Y. Li, M. Dong, and R. Kothari. 2005. Classifiability-based omnivariate decision trees. IEEE Trans. Neural Networks, 16, 6, 1547–1560.
+doi: 10.1109/TNN.2005.852864.
+J. Marques-Silva. 2024. Logic-based explainability: past, present and future. In Leveraging Applications of Formal Methods, Verification
+and Validation. ISoLA, Proceedings, Part IV (Lecture Notes in Computer Science). T. Margaria and B. Steffen, (Eds.) Vol. 15222. Springer,
+181–204.
+J. Marques-Silva and A. Ignatiev. 2022. Delivering trustworthy AI through formal XAI. In AAAI. AAAI Press, 12342–12350. https://ojs
+.aaai.org/index.php/AAAI/article/view/21499.
+T. Miller. 2019. Explanation in artificial intelligence: insights from the social sciences. Artif. Intell., 267, 1–38. doi: 10.1016/j.artint.2018
+.07.007.
+S. K. Murthy, S. Kasif, and S. Salzberg. 1994. A system for induction of oblique decision trees. J. Artif. Intell. Res., 2, 1–32. doi:
+10.1613/jair.63.
+S. Ordyniak, G. Paesani, M. Rychlicki, and S. Szeider. 2024. Explaining decisions in ML models: A parameterized complexity analysis.
+In KR. P. Marquis, M. Ortiz, and M. Pagnucco, (Eds.) https://doi.org/10.24963/kr.2024/53.
+E. M. Reingold. 1972. On the optimality of some set algorithms. J. ACM, 19, 4, 649–659. doi: 10.1145/321724.321730.
+E. G. Rodrigo, J. C. Alfaro, J. A. Aledo, and J. A. Gámez. 2024. Label ranking oblique trees. Knowl. Based Syst., 296, 111882.
+T. J. Schaefer. 1978. The complexity of satisfiability problems. In Proceedings of the 10th Annual ACM Symposium on Theory of Computing.
+R. J. Lipton, W. A. Burkhard, W. J. Savitch, E. P. Friedman, and A. V. Aho, (Eds.) ACM, 216–226. doi: 10.1145/800133.804350.
+A. Shih, A. Choi, and A. Darwiche. 2018. A symbolic approach to explaining bayesian network classifiers. In IJCAI. J. Lang, (Ed.)
+ijcai.org, 5103–5111. doi: 10.24963/ijcai.2018/708.
+S. Wäldchen, J. MacDonald, S. Hauch, and G. Kutyniok. 2021. The computational complexity of understanding binary classifier
+decisions. J. Artif. Intell. Res., 70, 351–387. doi: 10.1613/jair.1.12359.
+D. C. Wickramarachchi, B. L. Robertson, M. Reale, C. J. Price, and J. Brown. 2016. HHCART: an oblique decision tree. Comput. Stat.
+Data Anal., 96, 12–23. doi: 10.1016/j.csda.2015.11.006.
+H. Zhu, P. Murali, D. T. Phan, L. M. Nguyen, and J. Kalagnanam. 2020. A scalable MIP-based method for learning optimal multivariate
+decision trees. In NeurIPS. H. Larochelle, M. Ranzato, R. Hadsell, M. Balcan, and H. Lin, (Eds.) https://proceedings.neurips.cc/paper/202
+0/hash/1373b284bc381890049e92d324f56de0-Abstract.html.
+D. Zhuk. 2020. A proof of the CSP dichotomy conjecture. J. ACM, 67, 5, 30:1–30:78. doi: 10.1145/3402029.
+
+1115
+
+A
+
+Reproducibility Checklist for JAIR
+
+1116
+
+Select the answers that apply to your research – one per item.
+
+[31]
+
+1083
+1084
+1085
+1086
+
+[32]
+[33]
+[34]
+
+1087
+1088
+1089
+1090
+1091
+1092
+
+[35]
+[36]
+[37]
+[38]
+
+1093
+1094
+1095
+1096
+
+[39]
+[40]
+
+1097
+1098
+
+[41]
+
+1099
+1100
+1101
+1102
+1103
+
+[42]
+[43]
+[44]
+[45]
+
+1104
+1105
+1106
+
+[46]
+[47]
+
+1107
+1108
+
+[48]
+
+1109
+1110
+
+[49]
+
+1111
+1112
+1113
+1114
+
+1117
+1118
+1119
+1120
+1121
+1122
+1123
+1124
+1125
+1126
+1127
+
+All articles:
+(1) All claims investigated in this work are clearly stated. [yes]
+(2) Clear explanations are given how the work reported substantiates the claims. [yes]
+(3) Limitations or technical assumptions are stated clearly and explicitly. [yes]
+(4) Conceptual outlines and/or pseudo-code descriptions of the AI methods introduced in this work are
+provided, and important implementation details are discussed. [yes]
+(5) Motivation is provided for all design choices, including algorithms, implementation choices, parameters,
+data sets and experimental protocols beyond metrics. [yes]
+
+1128
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+0:26
+1129
+1130
+1131
+
+•
+
+Carbonnel, Cooper, Hebrard, Morales & Marques-Silva
+
+Articles containing theoretical contributions:
+Does this paper make theoretical contributions? [yes]
+If yes, please complete the list below.
+
+1132
+1133
+1134
+1135
+1136
+1137
+1138
+1139
+1140
+1141
+
+(1) All assumptions and restrictions are stated clearly and formally. [yes]
+(2) All novel claims are stated formally (e.g., in theorem statements). [yes]
+(3) Proofs of all non-trivial claims are provided in sufficient detail to permit verification by readers with a
+reasonable degree of expertise (e.g., that expected from a PhD candidate in the same area of AI). [yes]
+(4) Complex formalism, such as definitions or proofs, is motivated and explained clearly. [yes]
+(5) The use of mathematical notation and formalism serves the purpose of enhancing clarity and precision;
+gratuitous use of mathematical formalism (i.e., use that does not enhance clarity or precision) is avoided.
+[yes]
+(6) Appropriate citations are given for all non-trivial theoretical tools and techniques. [yes]
+
+1142
+1143
+1144
+1145
+
+Articles reporting on computational experiments:
+Does this paper include computational experiments? [yes]
+If yes, please complete the list below.
+
+1146
+1147
+1148
+1149
+1150
+1151
+1152
+1153
+1154
+1155
+1156
+1157
+1158
+1159
+1160
+1161
+1162
+1163
+1164
+1165
+1166
+1167
+1168
+1169
+1170
+1171
+1172
+1173
+1174
+
+(1) All source code required for conducting experiments is included in an online appendix or will be made
+publicly available upon publication of the paper. The online appendix follows best practices for source
+code readability and documentation as well as for long-term accessibility. [yes]
+(2) The source code comes with a license that allows free usage for reproducibility purposes. [yes]
+(3) The source code comes with a license that allows free usage for research purposes in general. [yes]
+(4) Raw, unaggregated data from all experiments is included in an online appendix or will be made publicly available upon publication of the paper. The online appendix follows best practices for long-term
+accessibility. [yes]
+(5) The unaggregated data comes with a license that allows free usage for reproducibility purposes. [yes]
+(6) The unaggregated data comes with a license that allows free usage for research purposes in general. [yes]
+(7) If an algorithm depends on randomness, then the method used for generating random numbers and for
+setting seeds is described in a way sufficient to allow replication of results. [yes]
+(8) The execution environment for experiments, the computing infrastructure (hardware and software) used
+for running them, is described, including GPU/CPU makes and models; amount of memory (cache and
+RAM); make and version of operating system; names and versions of relevant software libraries and
+frameworks. [yes]
+(9) The evaluation metrics used in experiments are clearly explained and their choice is explicitly motivated.
+[yes]
+(10) The number of algorithm runs used to compute each result is reported. [yes]
+(11) Reported results have not been “cherry-picked” by silently ignoring unsuccessful or unsatisfactory
+experiments. [yes (results have not been cherry-picked)]
+(12) Analysis of results goes beyond single-dimensional summaries of performance (e.g., average, median)
+to include measures of variation, confidence, or other distributional information. [no] (but not relevant
+since we claim equality rather than difference)
+(13) All (hyper-) parameter settings for the algorithms/methods used in experiments have been reported, along
+with the rationale or method for determining them. [yes]
+(14) The number and range of (hyper-) parameter settings explored prior to conducting final experiments
+have been indicated, along with the effort spent on (hyper-) parameter optimisation. [yes]
+
+1175
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+Explaining Multivariate Decision Trees: Characterising Tractable Languages
+1176
+1177
+1178
+1179
+1180
+1181
+1182
+1183
+1184
+1185
+1186
+1187
+1188
+1189
+1190
+1191
+1192
+1193
+1194
+1195
+1196
+1197
+
+•
+
+0:27
+
+(15) Appropriately chosen statistical hypothesis tests are used to establish statistical significance in the presence
+of noise effects. [NA]
+
+Articles using data sets:
+Does this work rely on one or more data sets (possibly obtained from a benchmark generator or similar software
+artifact)? [yes]
+If yes, please complete the list below.
+(1) All newly introduced data sets are included in an online appendix or will be made publicly available upon
+publication of the paper. The online appendix follows best practices for long-term accessibility with a
+license that allows free usage for research purposes. [NA (no new datasets)]
+(2) The newly introduced data set comes with a license that allows free usage for reproducibility purposes.
+[NA]
+(3) The newly introduced data set comes with a license that allows free usage for research purposes in general.
+[NA]
+(4) All data sets drawn from the literature or other public sources (potentially including authors’ own
+previously published work) are accompanied by appropriate citations. [yes]
+(5) All data sets drawn from the existing literature (potentially including authors’ own previously published
+work) are publicly available. [yes]
+(6) All new data sets and data sets that are not publicly available are described in detail, including relevant
+statistics, the data collection process and annotation process if relevant. [NA]
+(7) All methods used for preprocessing, augmenting, batching or splitting data sets (e.g., in the context of
+hold-out or cross-validation) are described in detail. [yes]
+
+1198
+1199
+
+Received 29 July 2025; accepted
+
+1200
+1201
+1202
+1203
+1204
+1205
+1206
+1207
+1208
+1209
+1210
+1211
+1212
+1213
+1214
+1215
+1216
+1217
+1218
+1219
+1220
+1221
+1222
+
+Journal of Artificial Intelligence Research, Vol. 0, Article 0. Publication date: 2025.
+
+
