@@ -40,7 +40,8 @@ class GSNHClassifier:
                  random_state: int = 42,
                  verbose: bool = True,
                  mode: str = 'heuristic',
-                 language: LanguageFamily = LanguageFamily.ANY):
+                 language: LanguageFamily = LanguageFamily.ANY,
+                 theorem_strict: bool = False):
 
         self.model_type = model_type
         self.n_bins = n_bins
@@ -56,6 +57,7 @@ class GSNHClassifier:
         self.verbose = verbose
         self.mode = mode
         self.language = language
+        self.theorem_strict = theorem_strict
 
         self.model_ = None
         self.calibrator_ = None
@@ -76,8 +78,10 @@ class GSNHClassifier:
         y = np.asarray(y, dtype=np.int32)
         
         if self.mode == 'journal' and self.language == LanguageFamily.ANY:
-            self.language = LanguageFamily.HORN
-            warnings.warn("Journal mode requires a fixed language. Defaulting ANY to HORN.")
+            raise ValueError(
+                "Journal mode requires an explicit fixed language or certified mixed mode; "
+                "language=ANY is not allowed."
+            )
 
         np.random.seed(self.random_state)
 
@@ -144,7 +148,8 @@ class GSNHClassifier:
                 stopping_criteria=stopping,
                 n_bins=self.n_bins,
                 mode=self.mode,
-                language=self.language
+                language=self.language,
+                theorem_strict=self.theorem_strict
             )
 
         elif self.selected_model_type_ == 'forest':
