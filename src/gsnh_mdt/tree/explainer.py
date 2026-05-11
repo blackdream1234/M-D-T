@@ -3,9 +3,16 @@ Explainer methods for ExpertGSNHTree.
 
 Extracted from tree/builder.py lines 1181-1412.
 AXp extraction, weak AXp checking, path satisfiability (numeric + affine).
+
+Theorem-strict compliance extensions:
+- Path-level certificate checking
+- Backend metadata recording
+- NonTheoremPathError for uncertified paths
 """
 
 import numpy as np
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Any
 
 from gsnh_mdt.literals.binary import GSNHBinaryLiteral
 from gsnh_mdt.literals.compare import CompareLiteral
@@ -14,8 +21,31 @@ from gsnh_mdt.sat.exact_solver import ExactSATSolver
 from gsnh_mdt.types import LanguageFamily, LiteralPolarity
 
 
-class NonTheoremPathError(RuntimeError):
-    """Raised when theorem_strict mode encounters a non-certified path."""
+# ================================================================
+# Backend metadata for theorem compliance tracking
+# ================================================================
+
+@dataclass
+class AXpBackendMetadata:
+    """Metadata recorded for each AXp/path SAT call.
+
+    Attributes
+    ----------
+    axp_backend : str
+        One of: structural_horn, structural_antihorn, two_sat,
+        affine, interval_dfs_fallback, prototype_case_split,
+        rejected_non_theorem, empty_path
+    theorem_certified : bool
+        True iff the path check used a Coq-verified polynomial backend.
+    path_certificate : str
+        One of: horn, antihorn, 2cnf, none
+    reason : str, optional
+        Explanation if the path was rejected.
+    """
+    axp_backend: str = "unknown"
+    theorem_certified: bool = False
+    path_certificate: str = "none"
+    reason: str = ""
 
 
 def _enumerate_paths(tree):
@@ -75,6 +105,13 @@ def weak_axp_check(tree, x, y, S, paths=None):
 
 
 from gsnh_mdt.sat.threshold_encoder import encode_horn_path, encode_antihorn_path
+from gsnh_mdt.sat.path_certificate import (
+    NonTheoremPathError,
+    build_ordered_selected_path_cnf,
+    classify_cnf_fragment,
+    is_polynomial_safe_path,
+)
+
 
 def _path_sat_structural_horn(path_edges, x, S, family):
     # Check for unsupported literals before encoding
@@ -98,69 +135,180 @@ def _path_sat_structural_horn(path_edges, x, S, family):
     raise NotImplementedError
 
 
-def _classify_cnf_fragment(clauses):
-    is_horn = True
-    is_antihorn = True
-    is_2cnf = True
-    for clause in clauses:
-        n_pos = sum(1 for _, s in clause if s)
-        n_neg = len(clause) - n_pos
-        if n_pos > 1:
-            is_horn = False
-        if n_neg > 1:
-            is_antihorn = False
-        if len(clause) > 2:
-            is_2cnf = False
-    if is_horn:
-        return "horn"
-    if is_antihorn:
-        return "antihorn"
-    if is_2cnf:
-        return "2cnf"
-    return "none"
+def _check_unsupported_literals_theorem_mode(path_edges):
+    """Check if any predicate on the path uses unsupported literal types.
+
+    In theorem_strict mode, only GSNHLiteral (threshold atoms) are supported.
+    CompareLiteral, GSNHBinaryLiteral, XOR, and affine literals are rejected.
+    """
+    unsupported = []
+    for pred, _ in path_edges:
+        if pred.is_xor:
+            unsupported.append("XOR/Affine")
+        if isinstance(pred, Square2CNFPredicate):
+            # Square2CNF allowed only if certified
+            continue
+        for lit in pred.literals:
+            if isinstance(lit, CompareLiteral):
+                unsupported.append("CompareLiteral")
+            elif isinstance(lit, GSNHBinaryLiteral):
+                unsupported.append("GSNHBinaryLiteral")
+    return unsupported
+
 
 def _is_sat_path(tree, path_edges, x, S):
     """
     Route to correct SAT checker.
+
+    In theorem_strict mode, every path must be certified as Horn,
+    AntiHorn, or 2CNF. Uncertified paths raise NonTheoremPathError
+    or record rejected_non_theorem metadata.
     """
+    theorem_strict = getattr(tree, 'theorem_strict', False)
+    metadata = AXpBackendMetadata()
+
     if not path_edges:
+        metadata.axp_backend = "empty_path"
+        metadata.theorem_certified = True
+        metadata.path_certificate = "horn"  # trivially Horn
         tree.explainer_backend_ = "empty_path"
+        _record_metadata(tree, metadata)
         return True
+
+    # Theorem-strict mode: check for unsupported literals
+    if theorem_strict:
+        unsupported = _check_unsupported_literals_theorem_mode(path_edges)
+        if unsupported:
+            metadata.axp_backend = "rejected_non_theorem"
+            metadata.theorem_certified = False
+            metadata.reason = f"Unsupported literals: {', '.join(set(unsupported))}"
+            _record_metadata(tree, metadata)
+            raise NonTheoremPathError(metadata.reason)
+
+    has_square2cnf = any(isinstance(pred, Square2CNFPredicate) for pred, _ in path_edges)
+
+    if theorem_strict and has_square2cnf:
+        try:
+            _, cnf = build_ordered_selected_path_cnf(path_edges, x, S)
+        except NonTheoremPathError as e:
+            metadata.axp_backend = "rejected_non_theorem"
+            metadata.theorem_certified = False
+            metadata.path_certificate = "none"
+            metadata.reason = str(e)
+            _record_metadata(tree, metadata)
+            raise
+
+        if any(len(clause) > 2 for clause in cnf):
+            metadata.axp_backend = "rejected_non_theorem"
+            metadata.theorem_certified = False
+            metadata.path_certificate = "none"
+            metadata.reason = "Square2CNF path did not certify as 2-CNF"
+            _record_metadata(tree, metadata)
+            raise NonTheoremPathError(metadata.reason)
+
+        tree.explainer_backend_ = "two_sat"
+        metadata.axp_backend = "two_sat"
+        metadata.theorem_certified = True
+        metadata.path_certificate = "2cnf"
+        metadata.reason = ""
+        _record_metadata(tree, metadata)
+        return ExactSATSolver.two_sat(cnf)
 
     # Determine homogeneous family on path, ignoring leaves/affine
     fams = {pred.language_family for pred, _ in path_edges if not pred.is_xor}
 
     if fams == {LanguageFamily.HORN}:
         tree.explainer_backend_ = "structural_horn"
-        tree.theorem_certified_ = True
-        tree.path_certificate_ = "horn"
+        metadata.axp_backend = "structural_horn"
+        metadata.theorem_certified = True
+        metadata.path_certificate = "horn"
+        _record_metadata(tree, metadata)
         return _path_sat_structural_horn(path_edges, x, S, LanguageFamily.HORN)
 
     if fams == {LanguageFamily.ANTI_HORN}:
         tree.explainer_backend_ = "structural_antihorn"
-        tree.theorem_certified_ = True
-        tree.path_certificate_ = "antihorn"
+        metadata.axp_backend = "structural_antihorn"
+        metadata.theorem_certified = True
+        metadata.path_certificate = "antihorn"
+        _record_metadata(tree, metadata)
         return _path_sat_structural_horn(path_edges, x, S, LanguageFamily.ANTI_HORN)
 
     # Affine-only path
     if path_edges and all(pred.is_xor for pred, _ in path_edges):
         tree.explainer_backend_ = "affine"
-        tree.theorem_certified_ = False
-        tree.path_certificate_ = "none"
+        metadata.axp_backend = "affine"
+        metadata.theorem_certified = False
+        metadata.path_certificate = "none"
+        metadata.reason = "Affine backend is auxiliary unless separately certified"
+        _record_metadata(tree, metadata)
         return _affine_path_sat(path_edges, x, S)
 
-    # fallback for empirical families (ConjUI, Square2CNF, BEST_PER_NODE, etc)
+    # Theorem-strict BEST_PER_NODE: path-level certificate check
+    if theorem_strict:
+        try:
+            is_safe, certificate = is_polynomial_safe_path(path_edges, x, S)
+        except NonTheoremPathError as e:
+            metadata.axp_backend = "rejected_non_theorem"
+            metadata.theorem_certified = False
+            metadata.path_certificate = "none"
+            metadata.reason = str(e)
+            _record_metadata(tree, metadata)
+            raise
+
+        if not is_safe:
+            metadata.axp_backend = "rejected_non_theorem"
+            metadata.theorem_certified = False
+            metadata.path_certificate = certificate
+            metadata.reason = (
+                f"Path CNF classified as '{certificate}'; "
+                "only horn/antihorn/2cnf are theorem-compliant"
+            )
+            _record_metadata(tree, metadata)
+            raise NonTheoremPathError(metadata.reason)
+
+        # Route to certified solver based on certificate.
+        # Always use build_ordered_selected_path_cnf for CNF construction
+        # because encode_horn_path/encode_antihorn_path do not understand
+        # Square2CNFPredicate clause structure and would flatten the
+        # literals into a single oversized clause.
+        _, cnf = build_ordered_selected_path_cnf(path_edges, x, S)
+
+        if certificate == "horn":
+            tree.explainer_backend_ = "structural_horn"
+            metadata.axp_backend = "structural_horn"
+            metadata.theorem_certified = True
+            metadata.path_certificate = "horn"
+            _record_metadata(tree, metadata)
+            return ExactSATSolver.horn_sat(cnf)
+
+        if certificate == "antihorn":
+            tree.explainer_backend_ = "structural_antihorn"
+            metadata.axp_backend = "structural_antihorn"
+            metadata.theorem_certified = True
+            metadata.path_certificate = "antihorn"
+            _record_metadata(tree, metadata)
+            return ExactSATSolver.antihorn_sat(cnf)
+
+        if certificate == "2cnf":
+            tree.explainer_backend_ = "two_sat"
+            metadata.axp_backend = "two_sat"
+            metadata.theorem_certified = True
+            metadata.path_certificate = "2cnf"
+            _record_metadata(tree, metadata)
+            return ExactSATSolver.two_sat(cnf)
+
+    # Non-strict fallback for empirical families (ConjUI, Square2CNF, BEST_PER_NODE, etc)
     if LanguageFamily.CONJ_UI in fams or LanguageFamily.SQUARE_2CNF in fams or len(fams) > 1:
         if LanguageFamily.SQUARE_2CNF in fams:
             tree.explainer_backend_ = "prototype_case_split"
+            metadata.axp_backend = "prototype_case_split"
         else:
             tree.explainer_backend_ = "interval_dfs_fallback"
-    tree.path_certificate_ = "none"
-    tree.theorem_certified_ = False
-    if getattr(tree, "theorem_strict", False):
-        tree.explainer_backend_ = "rejected_non_theorem"
-        tree.non_theorem_reason_ = "path not certifiable as horn/antihorn/2cnf"
-        raise NonTheoremPathError(tree.non_theorem_reason_)
+            metadata.axp_backend = "interval_dfs_fallback"
+        metadata.theorem_certified = False
+        metadata.path_certificate = "none"
+
+    _record_metadata(tree, metadata)
 
     if not _path_sat_numeric(path_edges, x, S):
         return False
@@ -171,6 +319,12 @@ def _is_sat_path(tree, path_edges, x, S):
             return False
             
     return True
+
+
+def _record_metadata(tree, metadata: AXpBackendMetadata):
+    """Record backend metadata on the tree object."""
+    if hasattr(tree, 'axp_metadata_') and isinstance(tree.axp_metadata_, list):
+        tree.axp_metadata_.append(metadata)
 
 
 # ================================================================
@@ -472,6 +626,10 @@ def _affine_path_sat(path_edges, x, S):
 def extract_axp(tree, x):
     """Extract a single minimal AXp for an instance. Returns set of features.
 
+    Deletion-based algorithm: start with all features, try removing each
+    in deterministic order (0, 1, ..., n_features-1). Remove feature f
+    if weak_axp_check(S - {f}) remains True.
+
     Performance note: paths are enumerated once and reused across all
     ``n_features`` calls to ``weak_axp_check``, avoiding O(d × 2^depth)
     redundant recursive traversals.
@@ -484,9 +642,14 @@ def extract_axp(tree, x):
     y = predict(tree, x.reshape(1, -1))[0]
     S = set(range(tree.n_features_))
 
+    # Clear metadata for this extraction
+    if hasattr(tree, 'axp_metadata_'):
+        tree.axp_metadata_ = []
+
     # Enumerate paths ONCE — this was the 67% bottleneck
     paths = _enumerate_paths(tree)
 
+    # Deterministic deletion order: 0, 1, ..., n_features-1
     for f in range(tree.n_features_):
         S.remove(f)
         if not weak_axp_check(tree, x, y, S, paths=paths):

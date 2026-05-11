@@ -18,9 +18,11 @@ class AdaptiveBinner:
       - 'supervised': label-aware DT thresholds (ENHANCED, Module 1 from paper)
     """
 
-    def __init__(self, n_bins: int = 64, strategy: str = 'quantile'):
+    def __init__(self, n_bins: int = 64, strategy: str = 'quantile',
+                 random_state: int = 42):
         self.n_bins = n_bins
         self.strategy = strategy
+        self.random_state = random_state
         self.bin_edges_ = {}
         self.bin_indices_ = {}
 
@@ -76,7 +78,7 @@ class AdaptiveBinner:
 
         dt = DecisionTreeClassifier(
             max_leaf_nodes=min(max_bins, len(unique_vals)),
-            random_state=42
+            random_state=self.random_state
         )
         dt.fit(col.reshape(-1, 1), y)
 

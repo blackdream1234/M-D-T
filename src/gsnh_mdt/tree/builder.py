@@ -96,8 +96,8 @@ class ExpertGSNHTree:
                  enable_compare_literals: bool = False,
                  prune: bool = False,
                  prune_alpha: float = 0.01,
-                 random_state: int = 42,
-                 theorem_strict: bool = False):
+                 theorem_strict: bool = False,
+                 random_state: int = 42):
 
         self.stopping = stopping_criteria or StoppingCriteria()
         self.n_bins = n_bins
@@ -123,10 +123,11 @@ class ExpertGSNHTree:
         self.enable_compare_literals = enable_compare_literals
         self.prune = prune
         self.prune_alpha = prune_alpha
-        self.random_state = random_state
         self.theorem_strict = theorem_strict
+        self.random_state = random_state
 
         self.root_ = None
+        self.axp_metadata_ = []  # Backend metadata for AXp path checks
         self.binner_ = None
         self.feature_importances_ = None
         self.n_features_ = None
@@ -194,10 +195,12 @@ class ExpertGSNHTree:
         # Binning — supervised (Module 1) or unsupervised
             
         if self.use_supervised_binning:
-            self.binner_ = AdaptiveBinner(self.n_bins, 'supervised')
+            self.binner_ = AdaptiveBinner(self.n_bins, 'supervised',
+                                          random_state=self.random_state)
             self.binner_.fit(X, y)
         else:
-            self.binner_ = AdaptiveBinner(self.n_bins, self.binning_strategy)
+            self.binner_ = AdaptiveBinner(self.n_bins, self.binning_strategy,
+                                          random_state=self.random_state)
             self.binner_.fit(X)
 
         # Feature scores for prioritization (recomputed per-node)
@@ -218,9 +221,7 @@ class ExpertGSNHTree:
         # If pruning enabled, hold out validation data
         if self.prune and len(X) >= 500:
             from sklearn.model_selection import StratifiedShuffleSplit
-            sss = StratifiedShuffleSplit(
-                n_splits=1, test_size=0.2, random_state=self.random_state
-            )
+            sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=self.random_state)
             tr_idx, val_idx = next(sss.split(X, y))
             X_train, X_val = X[tr_idx], X[val_idx]
             y_train, y_val = y[tr_idx], y[val_idx]
@@ -266,7 +267,7 @@ class ExpertGSNHTree:
         from sklearn.feature_selection import mutual_info_classif
         try:
             scores = mutual_info_classif(
-                X, y, discrete_features='auto', random_state=42, n_neighbors=3
+                X, y, discrete_features='auto', random_state=self.random_state, n_neighbors=3
             )
             return scores
         except Exception:
@@ -349,10 +350,10 @@ class ExpertGSNHTree:
         
         # Also include random features (hidden gems)
         if d > top_k_int:
-            np.random.seed(self.random_state)
+            rng_interact = np.random.RandomState(self.random_state)
             remaining = np.setdiff1d(np.arange(d), top_idx)
             n_random = min(len(remaining), max(10, top_k_int // 3))
-            random_idx = np.random.choice(remaining, n_random, replace=False)
+            random_idx = rng_interact.choice(remaining, n_random, replace=False)
             candidate_feats = np.concatenate([top_idx, random_idx])
         else:
             candidate_feats = top_idx

@@ -9,6 +9,7 @@ import numpy as np
 from typing import Optional
 
 from gsnh_mdt.types import LanguageFamily
+from gsnh_mdt.sat.path_certificate import NonTheoremPathError
 from gsnh_mdt.tree.builder import ExpertGSNHTree
 from gsnh_mdt.tree.stopping import StoppingCriteria
 from gsnh_mdt.tree.pruning import CostComplexityPruner
@@ -41,6 +42,7 @@ class GSNHClassifier:
                  verbose: bool = True,
                  mode: str = 'heuristic',
                  language: LanguageFamily = LanguageFamily.ANY,
+                 journal_mode: bool = False,
                  theorem_strict: bool = False):
 
         self.model_type = model_type
@@ -57,6 +59,7 @@ class GSNHClassifier:
         self.verbose = verbose
         self.mode = mode
         self.language = language
+        self.journal_mode = journal_mode
         self.theorem_strict = theorem_strict
 
         self.model_ = None
@@ -76,18 +79,33 @@ class GSNHClassifier:
     def fit(self, X, y):
         X = np.asarray(X, dtype=np.float64)
         y = np.asarray(y, dtype=np.int32)
-        
+
+        # Journal mode strictness: reject ANY — do NOT silently coerce
+        if self.journal_mode and self.language == LanguageFamily.ANY:
+            raise ValueError(
+                "journal_mode=True requires an explicit fixed language "
+                "(HORN, ANTI_HORN, AFFINE, CONJ_UI, SQUARE_2CNF, "
+                "BEST_PER_NODE) or a certified mixed mode. "
+                "LanguageFamily.ANY is not permitted in journal mode "
+                "because unrestricted mixed-family paths are not "
+                "automatically polynomial-safe."
+            )
+
+        # Legacy compatibility: mode='journal' also rejects ANY
         if self.mode == 'journal' and self.language == LanguageFamily.ANY:
             raise ValueError(
-                "Journal mode requires an explicit fixed language or certified mixed mode; "
-                "language=ANY is not allowed."
+                "Journal mode requires a fixed language (not ANY). "
+                "Use select_language_via_cv() before training, or pass "
+                "language=HORN/ANTI_HORN/AFFINE/CONJ_UI/SQUARE_2CNF/"
+                "BEST_PER_NODE explicitly."
             )
 
         np.random.seed(self.random_state)
 
-        # Split for calibration/pruning
+        # Split for calibration/pruning — use configured random_state
+        rng = np.random.RandomState(self.random_state)
         n = len(y)
-        indices = np.random.permutation(n)
+        indices = rng.permutation(n)
 
         if self.use_calibration or self.use_pruning:
             cal_size = int(n * 0.15)
@@ -149,7 +167,7 @@ class GSNHClassifier:
                 n_bins=self.n_bins,
                 mode=self.mode,
                 language=self.language,
-                theorem_strict=self.theorem_strict
+                theorem_strict=self.theorem_strict,
             )
 
         elif self.selected_model_type_ == 'forest':
@@ -203,3 +221,10 @@ class GSNHClassifier:
 
     def score(self, X, y):
         return float((self.predict(X) == y).mean())
+
+    @property
+    def axp_metadata(self):
+        """Access the latest AXp backend metadata from the underlying tree."""
+        if self.model_ is not None and hasattr(self.model_, 'axp_metadata_'):
+            return self.model_.axp_metadata_
+        return None

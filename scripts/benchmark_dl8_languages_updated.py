@@ -53,7 +53,7 @@ import sys
 import time
 import traceback
 import warnings
-from collections import OrderedDict, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -310,8 +310,8 @@ def default_method_configs(include_square2cnf: bool = True) -> List[MethodConfig
                 search_2d=True,
                 search_3d=False,
                 mode="journal",
-                category="prototype",
-                description="Paper-style (l1∨l2)∧(l3∨l4) prototype",
+                category="main",
+                description="Certified Square2CNF via explicit 2-CNF encoding and two_sat backend",
             ),
         )
     return methods
@@ -331,6 +331,15 @@ class MethodResult:
     accs: List[float] = None
     errors: List[str] = None
 
+    # Theorem-compliance / AXp-backend metadata.
+    # These fields are scalar summaries so each benchmark row can be
+    # classified into theorem-certified vs auxiliary/prototype outputs.
+    axp_backend: str = "none"
+    theorem_certified: bool = False
+    path_certificate: str = "none"
+    rejected_reason: str = ""
+    theorem_mode_used: bool = False
+
     def __post_init__(self):
         if self.accs is None:
             self.accs = []
@@ -346,6 +355,40 @@ def safe_mean(xs: Sequence[float]) -> float:
 def safe_std(xs: Sequence[float]) -> float:
     arr = np.asarray([x for x in xs if x is not None and not np.isnan(x)], dtype=float)
     return float(np.std(arr)) if len(arr) else math.nan
+
+
+def _clean_metadata_value(value: Any, default: str = "none") -> str:
+    """Normalize metadata values for CSV/JSON rows."""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value if value else default
+    if isinstance(value, (list, tuple, set)):
+        vals = [_clean_metadata_value(v, default=default) for v in value]
+        vals = [v for v in vals if v and v != default]
+        if not vals:
+            return default
+        counts = Counter(vals)
+        if len(counts) == 1:
+            return next(iter(counts))
+        return "mixed:" + ",".join(f"{k}={counts[k]}" for k in sorted(counts))
+    return str(value)
+
+
+def _summarize_metadata_values(values: Sequence[Any], default: str = "none") -> str:
+    vals = [_clean_metadata_value(v, default=default) for v in values]
+    vals = [v for v in vals if v and v != default]
+    if not vals:
+        return default
+    counts = Counter(vals)
+    if len(counts) == 1:
+        return next(iter(counts))
+    return "mixed:" + ",".join(f"{k}={counts[k]}" for k in sorted(counts))
+
+
+def _summarize_bool_values(values: Sequence[Any]) -> bool:
+    vals = [bool(v) for v in values if v is not None]
+    return bool(vals) and all(vals)
 
 
 def count_gsnh_nodes(node: Optional[dict]) -> int:
@@ -522,6 +565,163 @@ class LanguageComparisonBenchmark:
 
         return n_bins, use_3d, top_k
 
+    @staticmethod
+    def _metadata_from_obj(obj: Any) -> Dict[str, Any]:
+        """Best-effort extraction of theorem metadata from tree metadata.
+
+        Accepts dicts, dataclasses/objects, lists of per-path metadata, and
+        legacy attributes such as ``explainer_backend_``.
+        """
+        defaults = {
+            "axp_backend": "none",
+            "theorem_certified": False,
+            "path_certificate": "none",
+            "rejected_reason": "",
+            "theorem_mode_used": False,
+        }
+        if obj is None:
+            return dict(defaults)
+
+        if isinstance(obj, list):
+            if not obj:
+                return dict(defaults)
+            items = [LanguageComparisonBenchmark._metadata_from_obj(x) for x in obj]
+            return {
+                "axp_backend": _summarize_metadata_values([x["axp_backend"] for x in items]),
+                "theorem_certified": _summarize_bool_values([x["theorem_certified"] for x in items]),
+                "path_certificate": _summarize_metadata_values([x["path_certificate"] for x in items]),
+                "rejected_reason": _summarize_metadata_values([x["rejected_reason"] for x in items], default=""),
+                "theorem_mode_used": _summarize_bool_values([x["theorem_mode_used"] for x in items]),
+            }
+
+        def get(name: str, *alts: str, default: Any = None) -> Any:
+            if isinstance(obj, dict):
+                for key in (name, *alts):
+                    if key in obj:
+                        return obj[key]
+            for key in (name, *alts):
+                if hasattr(obj, key):
+                    return getattr(obj, key)
+            return default
+
+        out = {
+            "axp_backend": get("axp_backend", "backend", "backend_name", default=defaults["axp_backend"]),
+            "theorem_certified": get("theorem_certified", "is_theorem_certified", default=defaults["theorem_certified"]),
+            "path_certificate": get("path_certificate", "certificate", "fragment", default=defaults["path_certificate"]),
+            "rejected_reason": get("rejected_reason", "reason", default=defaults["rejected_reason"]),
+            "theorem_mode_used": get("theorem_mode_used", "theorem_strict", default=defaults["theorem_mode_used"]),
+        }
+        out["axp_backend"] = _clean_metadata_value(out["axp_backend"], "none")
+        out["path_certificate"] = _clean_metadata_value(out["path_certificate"], "none")
+        out["rejected_reason"] = _clean_metadata_value(out["rejected_reason"], "")
+        out["theorem_certified"] = bool(out["theorem_certified"])
+        out["theorem_mode_used"] = bool(out["theorem_mode_used"])
+        return out
+
+    @staticmethod
+    def _extract_tree_theorem_metadata(tree: Any, method: Optional[MethodConfig] = None) -> Dict[str, Any]:
+        """Extract benchmark-row theorem metadata from a fitted GSNH tree."""
+        for attr in (
+            "axp_metadata_",
+            "last_axp_metadata_",
+            "theorem_metadata_",
+            "path_certificate_metadata_",
+        ):
+            if hasattr(tree, attr):
+                meta = getattr(tree, attr)
+                if meta is not None:
+                    return LanguageComparisonBenchmark._metadata_from_obj(meta)
+
+        backend = getattr(tree, "explainer_backend_", None)
+        if backend is not None:
+            return {
+                "axp_backend": _clean_metadata_value(backend),
+                "theorem_certified": backend in {"structural_horn", "structural_antihorn", "two_sat"},
+                "path_certificate": (
+                    "horn" if backend == "structural_horn"
+                    else "antihorn" if backend == "structural_antihorn"
+                    else "2cnf" if backend == "two_sat"
+                    else "none"
+                ),
+                "rejected_reason": "",
+                "theorem_mode_used": bool(getattr(tree, "theorem_strict", False)),
+            }
+
+        if method is not None:
+            # Conservative default for old trees without explicit metadata.
+            # Empirical methods stay non-certified unless the explainer records
+            # a certificate.
+            if method.label == "Horn":
+                return {
+                    "axp_backend": "structural_horn",
+                    "theorem_certified": True,
+                    "path_certificate": "horn",
+                    "rejected_reason": "",
+                    "theorem_mode_used": True,
+                }
+            if method.label == "AntiHorn":
+                return {
+                    "axp_backend": "structural_antihorn",
+                    "theorem_certified": True,
+                    "path_certificate": "antihorn",
+                    "rejected_reason": "",
+                    "theorem_mode_used": True,
+                }
+
+        return {
+            "axp_backend": "none",
+            "theorem_certified": False,
+            "path_certificate": "none",
+            "rejected_reason": "",
+            "theorem_mode_used": False,
+        }
+
+    @staticmethod
+    def _certificates_are_safe(cert: str) -> bool:
+        cert = _clean_metadata_value(cert, "none")
+        allowed = {"horn", "antihorn", "2cnf"}
+        if cert in allowed:
+            return True
+        if not cert.startswith("mixed:"):
+            return False
+        body = cert[len("mixed:"):]
+        if not body:
+            return False
+        labels = []
+        for part in body.split(","):
+            label = part.split("=", 1)[0].strip()
+            if label:
+                labels.append(label)
+        return bool(labels) and all(label in allowed for label in labels)
+
+    @staticmethod
+    def _is_theorem_row(row: Dict[str, Any]) -> bool:
+        """Return True iff a flattened result row is theorem-certified.
+
+        Fallback/prototype backends are excluded even if a row is accidentally
+        marked theorem_certified=True.
+        """
+        if not bool(row.get("theorem_certified", False)):
+            return False
+
+        backend = _clean_metadata_value(row.get("axp_backend"), "none")
+        cert = _clean_metadata_value(row.get("path_certificate"), "none")
+        label = _clean_metadata_value(row.get("method_label"), "")
+
+        forbidden = {"interval_dfs_fallback", "prototype_case_split", "rejected_non_theorem", "none"}
+        if backend in forbidden:
+            return False
+        if any(x in backend for x in forbidden):
+            return False
+
+        if label == "Square2CNF":
+            return backend == "two_sat" and cert == "2cnf"
+
+        if label == "BestPN":
+            return LanguageComparisonBenchmark._certificates_are_safe(cert)
+
+        return cert in {"horn", "antihorn", "2cnf"} or backend in {"structural_horn", "structural_antihorn", "two_sat"}
+
     def run_all(self, datasets: "OrderedDict[str, Dict[str, Any]]", skip_large: Optional[int] = 2000):
         total = len(datasets)
         for idx, (name, info) in enumerate(datasets.items(), start=1):
@@ -546,6 +746,11 @@ class LanguageComparisonBenchmark:
                 "time": [],
                 "axp_valid": [],
                 "axp_minimal": [],
+                "axp_backend": [],
+                "theorem_certified": [],
+                "path_certificate": [],
+                "rejected_reason": [],
+                "theorem_mode_used": [],
                 "errors": [],
             }
         }
@@ -560,6 +765,11 @@ class LanguageComparisonBenchmark:
                     "time": [],
                     "axp_valid": [],
                     "axp_minimal": [],
+                    "axp_backend": [],
+                    "theorem_certified": [],
+                    "path_certificate": [],
+                    "rejected_reason": [],
+                    "theorem_mode_used": [],
                     "errors": [],
                 }
         return metrics
@@ -582,6 +792,11 @@ class LanguageComparisonBenchmark:
                 n_fail=len(m["errors"]),
                 accs=accs,
                 errors=list(m["errors"]),
+                axp_backend=_summarize_metadata_values(m.get("axp_backend", []), default="none"),
+                theorem_certified=_summarize_bool_values(m.get("theorem_certified", [])),
+                path_certificate=_summarize_metadata_values(m.get("path_certificate", []), default="none"),
+                rejected_reason=_summarize_metadata_values(m.get("rejected_reason", []), default=""),
+                theorem_mode_used=_summarize_bool_values(m.get("theorem_mode_used", [])),
             )
         return out
 
@@ -620,6 +835,11 @@ class LanguageComparisonBenchmark:
                 metrics["sklearn_dt7"]["time"].append(elapsed)
                 metrics["sklearn_dt7"]["axp_valid"].append(math.nan)
                 metrics["sklearn_dt7"]["axp_minimal"].append(math.nan)
+                metrics["sklearn_dt7"]["axp_backend"].append("sklearn")
+                metrics["sklearn_dt7"]["theorem_certified"].append(False)
+                metrics["sklearn_dt7"]["path_certificate"].append("none")
+                metrics["sklearn_dt7"]["rejected_reason"].append("baseline")
+                metrics["sklearn_dt7"]["theorem_mode_used"].append(False)
             except Exception as e:
                 msg = f"sklearn run {run_idx}: {e}"
                 metrics["sklearn_dt7"]["errors"].append(msg)
@@ -639,6 +859,17 @@ class LanguageComparisonBenchmark:
                         # 3D is controlled globally by --enable-3d and the method flag.
                         method_search_3d = bool(method.search_3d and use_3d)
 
+                        # Theorem-oriented methods must run their explanation checks
+                        # in theorem-strict mode so benchmark metadata reflects the
+                        # certified backend actually used by AXp extraction.
+                        #
+                        # BestPN remains empirical by default. Add a separate
+                        # BestPN-Certified method if you want to benchmark the
+                        # path-certificate-restricted variant.
+                        theorem_strict_run = method.label in {
+                            "1D", "Horn", "AntiHorn", "Square2CNF"
+                        }
+
                         tree = ET(
                             stopping_criteria=SC(
                                 max_depth=depth,
@@ -652,6 +883,8 @@ class LanguageComparisonBenchmark:
                             search_3d=method_search_3d,
                             mode=method.mode,
                             language=lang_family,
+                            theorem_strict=theorem_strict_run,
+                            random_state=self.rs + run_idx,
                         )
                         tree.fit(X_tr, y_tr)
                         elapsed = time.time() - t0
@@ -679,12 +912,19 @@ class LanguageComparisonBenchmark:
                         if warning:
                             metrics[key]["errors"].append(f"run {run_idx}: {warning}")
 
+                        theorem_meta = self._extract_tree_theorem_metadata(tree, method)
+
                         metrics[key]["acc"].append(acc)
                         metrics[key]["size"].append(size)
                         metrics[key]["expl"].append(expl)
                         metrics[key]["time"].append(elapsed)
                         metrics[key]["axp_valid"].append(axp_valid)
                         metrics[key]["axp_minimal"].append(axp_minimal)
+                        metrics[key]["axp_backend"].append(theorem_meta.get("axp_backend", "none"))
+                        metrics[key]["theorem_certified"].append(theorem_meta.get("theorem_certified", False))
+                        metrics[key]["path_certificate"].append(theorem_meta.get("path_certificate", "none"))
+                        metrics[key]["rejected_reason"].append(theorem_meta.get("rejected_reason", ""))
+                        metrics[key]["theorem_mode_used"].append(theorem_meta.get("theorem_mode_used", False))
 
                     except Exception as e:
                         msg = f"run {run_idx}: {type(e).__name__}: {e}"
@@ -957,14 +1197,131 @@ class LanguageComparisonBenchmark:
             lines.append(r"\bottomrule")
             lines.append(r"\end{tabular}%")
             lines.append(r"}")
-            lines.append(rf"\caption{{GSNH-MDT language-family comparison at depth {depth} vs sklearn DT depth 7. ConjUI denotes the old box/AND family; Square2CNF denotes the paper-style prototype.}}")
+            lines.append(rf"\caption{{GSNH-MDT language-family comparison at depth {depth} vs sklearn DT depth 7. ConjUI denotes the old box/AND family; Square2CNF denotes the theorem-certified paper-style 2-CNF family when executed with backend=two_sat and path_certificate=2cnf.}}")
             lines.append(r"\end{table}")
             chunks.append("\n".join(lines))
 
         return "\n\n".join(chunks)
 
+    def _result_rows(self) -> List[Dict[str, Any]]:
+        """Flatten aggregated results into long-format rows with theorem metadata."""
+        rows: List[Dict[str, Any]] = []
+        category = {m.label: m.category for m in self.methods}
+        for ds, r in self.results_.items():
+            for key, res in r.items():
+                if key == "sklearn_dt7":
+                    label, depth, cat = "sklearn DT", 7, "baseline"
+                else:
+                    label_part = key.replace("gsnh_", "")
+                    label, depth_s = label_part.rsplit("_d", 1)
+                    depth = int(depth_s)
+                    cat = category.get(label, "")
+                rows.append({
+                    "dataset": ds,
+                    "method_key": key,
+                    "method_label": label,
+                    "depth": depth,
+                    "category": cat,
+                    "acc": res.acc,
+                    "acc_std": res.acc_std,
+                    "size": res.size,
+                    "expl": res.expl,
+                    "train_time": res.train_time,
+                    "axp_valid_rate": res.axp_valid_rate,
+                    "axp_minimal_rate": res.axp_minimal_rate,
+                    "n_success": res.n_success,
+                    "n_fail": res.n_fail,
+                    "axp_backend": res.axp_backend,
+                    "theorem_certified": bool(res.theorem_certified),
+                    "path_certificate": res.path_certificate,
+                    "rejected_reason": res.rejected_reason,
+                    "theorem_mode_used": bool(res.theorem_mode_used),
+                    "random_state": self.rs,
+                    "n_runs": self.n_runs,
+                    "train_test_split_protocol": "StratifiedShuffleSplit(test_size=0.2)",
+                })
+        return rows
+
+    @staticmethod
+    def _write_rows_csv(path: str, rows: List[Dict[str, Any]]) -> None:
+        fieldnames = [
+            "dataset", "method_key", "method_label", "depth", "category",
+            "acc", "acc_std", "size", "expl", "train_time",
+            "axp_valid_rate", "axp_minimal_rate", "n_success", "n_fail",
+            "axp_backend", "theorem_certified", "path_certificate",
+            "rejected_reason", "theorem_mode_used", "random_state", "n_runs",
+            "train_test_split_protocol",
+        ]
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            w.writeheader()
+            for row in rows:
+                w.writerow(row)
+
+    @staticmethod
+    def _write_rows_json(path: str, rows: List[Dict[str, Any]]) -> None:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rows, f, indent=2, default=json_default)
+
+    @staticmethod
+    def _latex_escape(value: Any) -> str:
+        return str(value).replace("_", r"\_")
+
+    @staticmethod
+    def _write_rows_latex(path: str, rows: List[Dict[str, Any]], caption: str) -> None:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(r"\begin{table}[htbp]" + "\n")
+            f.write(r"\centering\scriptsize" + "\n")
+            f.write(r"\begin{tabular}{llllrrrlll}" + "\n")
+            f.write(r"\toprule" + "\n")
+            f.write(
+                r"Dataset & Method & Depth & Cert. & Acc. & Size & AXp & Backend & Path Cert. & Category \\ \midrule" + "\n"
+            )
+            for row in rows:
+                acc = row.get("acc", math.nan)
+                size = row.get("size", math.nan)
+                expl = row.get("expl", math.nan)
+                f.write(
+                    f"{LanguageComparisonBenchmark._latex_escape(row.get('dataset',''))} & "
+                    f"{LanguageComparisonBenchmark._latex_escape(row.get('method_label',''))} & "
+                    f"{row.get('depth','')} & "
+                    f"{row.get('theorem_certified', False)} & "
+                    f"{float(acc):.4f} & "
+                    f"{float(size):.1f} & "
+                    f"{float(expl):.2f} & "
+                    f"{LanguageComparisonBenchmark._latex_escape(row.get('axp_backend',''))} & "
+                    f"{LanguageComparisonBenchmark._latex_escape(row.get('path_certificate',''))} & "
+                    f"{LanguageComparisonBenchmark._latex_escape(row.get('category',''))} \\\n"
+                )
+            f.write(r"\bottomrule" + "\n")
+            f.write(r"\end{tabular}" + "\n")
+            f.write(rf"\caption{{{caption}}}" + "\n")
+            f.write(r"\end{table}" + "\n")
+
     def save_outputs(self, output_dir: str):
         os.makedirs(output_dir, exist_ok=True)
+
+        rows = self._result_rows()
+        theorem_rows = [row for row in rows if self._is_theorem_row(row)]
+        auxiliary_rows = [row for row in rows if not self._is_theorem_row(row)]
+
+        full_json_path = os.path.join(output_dir, "full_results.json")
+        full_csv_path = os.path.join(output_dir, "full_results.csv")
+        theorem_json_path = os.path.join(output_dir, "theorem_certified_results.json")
+        theorem_csv_path = os.path.join(output_dir, "theorem_certified_results.csv")
+        auxiliary_json_path = os.path.join(output_dir, "auxiliary_results.json")
+        auxiliary_csv_path = os.path.join(output_dir, "auxiliary_results.csv")
+        theorem_tex_path = os.path.join(output_dir, "theorem_certified_results.tex")
+        auxiliary_tex_path = os.path.join(output_dir, "auxiliary_results.tex")
+
+        self._write_rows_json(full_json_path, rows)
+        self._write_rows_csv(full_csv_path, rows)
+        self._write_rows_json(theorem_json_path, theorem_rows)
+        self._write_rows_csv(theorem_csv_path, theorem_rows)
+        self._write_rows_json(auxiliary_json_path, auxiliary_rows)
+        self._write_rows_csv(auxiliary_csv_path, auxiliary_rows)
+        self._write_rows_latex(theorem_tex_path, theorem_rows, "Theorem-certified GSNH-MDT benchmark rows.")
+        self._write_rows_latex(auxiliary_tex_path, auxiliary_rows, "Auxiliary, prototype, fallback, or non-certified GSNH-MDT benchmark rows.")
 
         # JSON
         payload = {
@@ -991,6 +1348,8 @@ class LanguageComparisonBenchmark:
                 "dataset", "method_key", "method_label", "depth", "category",
                 "acc", "acc_std", "size", "expl", "train_time",
                 "axp_valid_rate", "axp_minimal_rate", "n_success", "n_fail",
+                "axp_backend", "theorem_certified", "path_certificate",
+                "rejected_reason", "theorem_mode_used",
             ])
             category = {m.label: m.category for m in self.methods}
             for ds, r in self.results_.items():
@@ -1007,6 +1366,8 @@ class LanguageComparisonBenchmark:
                         res.acc, res.acc_std, res.size, res.expl, res.train_time,
                         res.axp_valid_rate, res.axp_minimal_rate,
                         res.n_success, res.n_fail,
+                        res.axp_backend, res.theorem_certified, res.path_certificate,
+                        res.rejected_reason, res.theorem_mode_used,
                     ])
 
         # LaTeX
@@ -1018,6 +1379,9 @@ class LanguageComparisonBenchmark:
         print(f"\n✓ Saved JSON:  {json_path}")
         print(f"✓ Saved CSV:   {csv_path}")
         print(f"✓ Saved LaTeX: {tex_path}")
+        print(f"✓ Saved full theorem-aware JSON/CSV: {full_json_path}, {full_csv_path}")
+        print(f"✓ Saved theorem-certified JSON/CSV/LaTeX: {theorem_json_path}, {theorem_csv_path}, {theorem_tex_path}")
+        print(f"✓ Saved auxiliary JSON/CSV/LaTeX: {auxiliary_json_path}, {auxiliary_csv_path}, {auxiliary_tex_path}")
 
 
 # =============================================================================

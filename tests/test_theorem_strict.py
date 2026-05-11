@@ -46,14 +46,54 @@ def test_order_implications_complete_for_three_thresholds():
 
 
 def test_mixed_bestpn_without_certificate_rejected_in_theorem_mode():
-    X = np.random.RandomState(0).rand(40, 4)
-    y = (X[:, 0] > 0.5).astype(int)
-    tree = ExpertGSNHTree(
-        stopping_criteria=StoppingCriteria(max_depth=2, min_samples_leaf=2, min_samples_split=4),
-        language=LanguageFamily.BEST_PER_NODE,
-        theorem_strict=True,
-        search_3d=False,
+    """A deliberately non-certified mixed path must be rejected in theorem mode.
+
+    Do not rely on fitting a random BEST_PER_NODE tree here: the learned path may
+    legitimately be Horn/AntiHorn/2CNF-certified. This test constructs a path
+    whose ordered CNF is neither Horn, AntiHorn, nor 2-CNF.
+    """
+    import numpy as np
+    import pytest
+
+    from gsnh_mdt.literals.base import GSNHLiteral
+    from gsnh_mdt.literals.predicates import GSNHPredicate
+    from gsnh_mdt.sat.path_certificate import NonTheoremPathError
+    from gsnh_mdt.tree.explainer import _is_sat_path
+    from gsnh_mdt.types import LanguageFamily, LiteralPolarity
+
+    def lit(f, t, pol):
+        return GSNHLiteral(feature=f, threshold=float(t), polarity=pol)
+
+    # Clause with 3 positive literals: not Horn, but AntiHorn.
+    pos3 = GSNHPredicate(
+        literals=(
+            lit(0, 0.2, LiteralPolarity.GE),
+            lit(1, 0.2, LiteralPolarity.GE),
+            lit(2, 0.2, LiteralPolarity.GE),
+        ),
+        information_gain=0.1,
+        language_family=LanguageFamily.CONJ_UI,
     )
-    tree.fit(X, y)
+
+    # Clause with 3 negative literals: Horn, but not AntiHorn.
+    neg3 = GSNHPredicate(
+        literals=(
+            lit(0, 0.8, LiteralPolarity.LT),
+            lit(1, 0.8, LiteralPolarity.LT),
+            lit(2, 0.8, LiteralPolarity.LT),
+        ),
+        information_gain=0.1,
+        language_family=LanguageFamily.CONJ_UI,
+    )
+
+    class MockTree:
+        theorem_strict = True
+        explainer_backend_ = ""
+        axp_metadata_ = []
+
+    tree = MockTree()
+    path_edges = [(pos3, True), (neg3, True)]
+
     with pytest.raises(NonTheoremPathError):
-        tree.extract_axp(X[0])
+        _is_sat_path(tree, path_edges, np.array([0.0, 0.0, 0.0]), set())
+

@@ -2,8 +2,10 @@ from dataclasses import dataclass
 from typing import Dict, Tuple, List, Set
 from gsnh_mdt.literals.base import GSNHLiteral, LiteralPolarity
 
-Atom = Tuple[int, float]  # (feature, threshold)
-Clause = List[Tuple[Atom, bool]]  # Literal representation for the SAT solver using Atoms
+from typing import Dict, Tuple, List, Set, Any
+
+Atom = Any  # usually Tuple[int, float] for (feature, threshold), but can be auxiliary
+Clause = List[Tuple[int, bool]]  # Literal representation for the SAT solver using Atoms
 
 @dataclass
 class ThresholdEncoding:
@@ -39,8 +41,10 @@ def negate_encoded_lit(encoded_lit: Tuple[int, bool]) -> Tuple[int, bool]:
 def add_structural_order_clauses(encoding: ThresholdEncoding):
     # Group atoms by feature
     atoms_by_feature: Dict[int, List[float]] = {}
-    for f, t in encoding.var_to_atom:
-        atoms_by_feature.setdefault(f, []).append(t)
+    for atom in encoding.var_to_atom:
+        if isinstance(atom, tuple) and len(atom) == 2 and isinstance(atom[0], int) and isinstance(atom[1], float):
+            f, t = atom
+            atoms_by_feature.setdefault(f, []).append(t)
         
     for f, thresholds in atoms_by_feature.items():
         sorted_t = sorted(thresholds)
@@ -59,14 +63,16 @@ def add_fixed_assignment_clauses(encoding: ThresholdEncoding, x, S: set):
     for f in S:
         val = x[f]
         # Find all thresholds for this fixed feature
-        for var_idx, (atom_f, atom_t) in enumerate(encoding.var_to_atom):
-            if atom_f == f:
-                # If x[f] >= t, we add B(f, t) -> (var_idx, True)
-                # Else, ¬B(f, t) -> (var_idx, False)
-                if val >= atom_t:
-                    encoding.clauses.append([(var_idx, True)])
-                else:
-                    encoding.clauses.append([(var_idx, False)])
+        for var_idx, atom in enumerate(encoding.var_to_atom):
+            if isinstance(atom, tuple) and len(atom) == 2 and isinstance(atom[0], int) and isinstance(atom[1], float):
+                atom_f, atom_t = atom
+                if atom_f == f:
+                    # If x[f] >= t, we add B(f, t) -> (var_idx, True)
+                    # Else, ¬B(f, t) -> (var_idx, False)
+                    if val >= atom_t:
+                        encoding.clauses.append([(var_idx, True)])
+                    else:
+                        encoding.clauses.append([(var_idx, False)])
 
 def encode_horn_path(path_edges: list, x, S: set) -> List[List[Tuple[int, bool]]]:
     encoding = ThresholdEncoding(atom_to_var={}, var_to_atom=[], clauses=[])

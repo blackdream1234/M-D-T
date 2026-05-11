@@ -121,6 +121,10 @@ class ModelConfig:
     # ENHANCED — research improvements
     prune: bool = False
     prune_alpha: float = 0.01
+    random_state: int = 42
+
+    # THEOREM COMPLIANCE
+    theorem_strict: bool = False
 
     # Sub-configs
     stopping: StoppingCriteria = field(default_factory=StoppingCriteria)
@@ -161,6 +165,8 @@ class ModelConfig:
             'enable_compare_literals': self.search.enable_compare_literals,
             'prune': self.prune,
             'prune_alpha': self.prune_alpha,
+            'theorem_strict': self.theorem_strict,
+            'random_state': self.random_state,
         }
 
 
