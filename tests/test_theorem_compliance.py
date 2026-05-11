@@ -762,6 +762,83 @@ class TestSquare2CNFTwoSat:
         _is_sat_path(tree2, [(pred, False)], x, set())
         assert tree2.explainer_backend_ == "two_sat"
 
+    def _assert_rejected_non_theorem_metadata(self, tree):
+        assert tree.axp_metadata_[-1].axp_backend == "rejected_non_theorem"
+        assert tree.axp_metadata_[-1].theorem_certified is False
+        assert tree.axp_metadata_[-1].path_certificate == "none"
+
+    def test_square2cnf_theorem_mode_rejects_one_clause_true_branch(self):
+        pred = Square2CNFPredicate(
+            clauses=((make_lit(0, 0.5, True), make_lit(1, 0.3, False)),),
+            information_gain=0.1,
+        )
+
+        class MockTree:
+            explainer_backend_ = ""
+            theorem_strict = True
+            axp_metadata_ = []
+
+        tree = MockTree()
+        with pytest.raises(NonTheoremPathError):
+            _is_sat_path(tree, [(pred, True)], np.array([1.0, 0.0]), set())
+        self._assert_rejected_non_theorem_metadata(tree)
+
+    def test_square2cnf_theorem_mode_rejects_one_clause_false_branch(self):
+        pred = Square2CNFPredicate(
+            clauses=((make_lit(0, 0.5, True), make_lit(1, 0.3, False)),),
+            information_gain=0.1,
+        )
+
+        class MockTree:
+            explainer_backend_ = ""
+            theorem_strict = True
+            axp_metadata_ = []
+
+        tree = MockTree()
+        with pytest.raises(NonTheoremPathError):
+            _is_sat_path(tree, [(pred, False)], np.array([1.0, 0.0]), set())
+        self._assert_rejected_non_theorem_metadata(tree)
+
+    def test_square2cnf_theorem_mode_rejects_three_clause_true_branch(self):
+        pred = Square2CNFPredicate(
+            clauses=(
+                (make_lit(0, 0.5, True), make_lit(1, 0.3, False)),
+                (make_lit(2, 0.7, True), make_lit(3, 0.4, False)),
+                (make_lit(0, 0.2, False), make_lit(2, 0.9, True)),
+            ),
+            information_gain=0.1,
+        )
+
+        class MockTree:
+            explainer_backend_ = ""
+            theorem_strict = True
+            axp_metadata_ = []
+
+        tree = MockTree()
+        with pytest.raises(NonTheoremPathError):
+            _is_sat_path(tree, [(pred, True)], np.array([1.0, 0.0, 1.0, 0.0]), set())
+        self._assert_rejected_non_theorem_metadata(tree)
+
+    def test_square2cnf_theorem_mode_rejects_three_clause_false_branch(self):
+        pred = Square2CNFPredicate(
+            clauses=(
+                (make_lit(0, 0.5, True), make_lit(1, 0.3, False)),
+                (make_lit(2, 0.7, True), make_lit(3, 0.4, False)),
+                (make_lit(0, 0.2, False), make_lit(2, 0.9, True)),
+            ),
+            information_gain=0.1,
+        )
+
+        class MockTree:
+            explainer_backend_ = ""
+            theorem_strict = True
+            axp_metadata_ = []
+
+        tree = MockTree()
+        with pytest.raises(NonTheoremPathError):
+            _is_sat_path(tree, [(pred, False)], np.array([1.0, 0.0, 1.0, 0.0]), set())
+        self._assert_rejected_non_theorem_metadata(tree)
+
 
 class TestWeakAXpBranchEncoding:
     """Verify that true-branch and false-branch edges are encoded
@@ -897,4 +974,3 @@ class TestExtractAXpSubsetMinimal:
             tested += 1
 
         assert tested > 0
-

@@ -123,6 +123,17 @@ def _encode_square2cnf_path_clauses(pred: Square2CNFPredicate, branch: bool,
                   Encoded with auxiliary variable s:
                   (¬s ∨ ¬l1), (¬s ∨ ¬l2), (s ∨ ¬l3), (s ∨ ¬l4)
     """
+    if len(pred.clauses) != 2:
+        raise NonTheoremPathError(
+            "Theorem-certified Square2CNF requires exactly two 2-literal clauses: "
+            "(l1 OR l2) AND (l3 OR l4)."
+        )
+    for clause in pred.clauses:
+        if len(clause) != 2:
+            raise NonTheoremPathError(
+                "Theorem-certified Square2CNF requires every clause to have exactly two literals."
+            )
+
     if branch:
         # True branch: each clause becomes a 2-literal disjunction
         for a, b in pred.clauses:
@@ -135,9 +146,6 @@ def _encode_square2cnf_path_clauses(pred: Square2CNFPredicate, branch: bool,
                 encoding.clauses.append(clause)
     else:
         # False branch: 2-CNF with auxiliary switch variable
-        if len(pred.clauses) != 2:
-            raise NonTheoremPathError("Square2CNF false branch must have exactly 2 clauses.")
-        
         c1, c2 = pred.clauses
         l1, l2 = c1
         l3, l4 = c2

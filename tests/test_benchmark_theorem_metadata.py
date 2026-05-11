@@ -6,8 +6,8 @@ import sys
 
 def _load_benchmark_module():
     root = Path(__file__).resolve().parents[1]
-    script = root / "/home/mrblackdream/Desktop/RS/gsnh_mdt/scripts/benchmark_dl8_languages_updated.py"
-    # Fallback for running this test directly against the downloaded patched file.
+    script = root / "scripts" / "benchmark_dl8_languages_updated.py"
+    # Fallback for older layouts.
     if not script.exists():
         script = root / "benchmark_dl8_languages_updated.py"
     spec = importlib.util.spec_from_file_location("benchmark_dl8_languages_updated", script)
@@ -75,30 +75,35 @@ def test_benchmark_excludes_non_theorem_fallback_from_theorem_table():
         "axp_backend": "interval_dfs_fallback",
         "theorem_certified": True,
         "path_certificate": "horn",
+        "theorem_mode_used": True,
     }
     prototype_row = {
         "method_label": "Square2CNF",
         "axp_backend": "prototype_case_split",
         "theorem_certified": True,
         "path_certificate": "2cnf",
+        "theorem_mode_used": True,
     }
     square_wrong_backend = {
         "method_label": "Square2CNF",
         "axp_backend": "structural_horn",
         "theorem_certified": True,
         "path_certificate": "2cnf",
+        "theorem_mode_used": True,
     }
     square_certified = {
         "method_label": "Square2CNF",
         "axp_backend": "two_sat",
         "theorem_certified": True,
         "path_certificate": "2cnf",
+        "theorem_mode_used": True,
     }
     bestpn_certified_mixed_safe = {
         "method_label": "BestPN",
         "axp_backend": "mixed:structural_horn=1,two_sat=1",
         "theorem_certified": True,
         "path_certificate": "mixed:horn=1,2cnf=1",
+        "theorem_mode_used": True,
     }
 
     assert not m.LanguageComparisonBenchmark._is_theorem_row(fallback_row)
@@ -106,3 +111,19 @@ def test_benchmark_excludes_non_theorem_fallback_from_theorem_table():
     assert not m.LanguageComparisonBenchmark._is_theorem_row(square_wrong_backend)
     assert m.LanguageComparisonBenchmark._is_theorem_row(square_certified)
     assert m.LanguageComparisonBenchmark._is_theorem_row(bestpn_certified_mixed_safe)
+
+
+def test_theorem_row_requires_theorem_mode_used_true():
+    m = _load_benchmark_module()
+
+    row = {
+        "method_label": "Square2CNF",
+        "axp_backend": "two_sat",
+        "theorem_certified": True,
+        "path_certificate": "2cnf",
+        "theorem_mode_used": False,
+    }
+    assert not m.LanguageComparisonBenchmark._is_theorem_row(row)
+
+    row["theorem_mode_used"] = True
+    assert m.LanguageComparisonBenchmark._is_theorem_row(row)

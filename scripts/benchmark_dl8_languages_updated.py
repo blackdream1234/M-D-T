@@ -703,6 +703,8 @@ class LanguageComparisonBenchmark:
         """
         if not bool(row.get("theorem_certified", False)):
             return False
+        if not bool(row.get("theorem_mode_used", False)):
+            return False
 
         backend = _clean_metadata_value(row.get("axp_backend"), "none")
         cert = _clean_metadata_value(row.get("path_certificate"), "none")
