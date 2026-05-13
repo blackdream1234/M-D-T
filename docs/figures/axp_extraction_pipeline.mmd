@@ -1,0 +1,14 @@
+flowchart TD
+    A[Trained MDT + input instance x] --> B[Compute original prediction y]
+    B --> C[Enumerate opposite-class paths]
+    C --> D[Initialize selected feature set S\n(typically all features)]
+    D --> E[Run weak_axp_check(S)]
+    E --> F{Deletion loop over feature f}
+    F --> G[Try S' = S \\ {f}]
+    G --> H{weak_axp_check(S') true?}
+    H -- Yes --> I[Remove f from S]
+    H -- No --> J[Keep f in S]
+    I --> F
+    J --> F
+    F --> K[Subset-minimal weak AXp]
+    K --> L[Note: subset-minimal != cardinality-minimal]

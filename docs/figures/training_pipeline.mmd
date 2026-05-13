@@ -1,0 +1,24 @@
+flowchart TD
+    A[Input .dl8 dataset] --> B[Train/test split]
+    B --> C[Adaptive binning / threshold extraction]
+    C --> D[Candidate predicate generation]
+    D --> E{Language-specific search}
+    E --> E1[1D]
+    E --> E2[Horn]
+    E --> E3[AntiHorn]
+    E --> E4[ConjUI\n(empirical auxiliary)]
+    E --> E5[Square2CNF]
+    E --> E6[Affine\n(empirical auxiliary)]
+    E --> E7[BestPN\n(empirical by default)]
+    E1 --> F[Information gain / penalized gain scoring]
+    E2 --> F
+    E3 --> F
+    E4 --> F
+    E5 --> F
+    E6 --> F
+    E7 --> F
+    F --> G[Best split selection]
+    G --> H[Recursive tree construction]
+    H --> I{Stopping criteria met?}
+    I -- No --> D
+    I -- Yes --> J[Learned MDT]

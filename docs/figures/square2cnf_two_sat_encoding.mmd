@@ -1,0 +1,19 @@
+flowchart TB
+    A[Square2CNF predicate\nphi = (l1 OR l2) AND (l3 OR l4)] --> B{Branch}
+    B -->|True branch| C[Encode clauses:\n[l1 OR l2]\n[l3 OR l4]]
+    C --> D[2-CNF]
+    D --> E[ExactSATSolver.two_sat]
+
+    B -->|False branch| F[Encode NOT(phi) with auxiliary switch s]
+    F --> F1[(not s OR not l1)]
+    F --> F2[(not s OR not l2)]
+    F --> F3[(s OR not l3)]
+    F --> F4[(s OR not l4)]
+    F1 --> G[2-CNF]
+    F2 --> G
+    F3 --> G
+    F4 --> G
+    G --> H[ExactSATSolver.two_sat]
+
+    E --> I[Theorem-certified only when:\ntheorem_strict=True\nbackend=two_sat\npath_certificate=2cnf]
+    H --> I

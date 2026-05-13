@@ -1,0 +1,16 @@
+flowchart TD
+    A[Run benchmark] --> B[Collect metrics + theorem metadata]
+    B --> C[Write full_results.csv / json]
+    B --> D[Filter theorem-certified rows]
+    B --> E[Filter auxiliary rows]
+
+    D --> D1{Theorem table rules}
+    D1 --> R1[theorem_certified=True]
+    D1 --> R2[theorem_mode_used=True]
+    D1 --> R3[exclude interval_dfs_fallback]
+    D1 --> R4[exclude prototype_case_split]
+    D1 --> R5[Square2CNF only if backend=two_sat and path_certificate=2cnf]
+    D1 --> R6[BestPN only if all checked paths have safe certificates]
+
+    D --> F[Write theorem_certified_results.csv/json/tex]
+    E --> G[Write auxiliary_results.csv/json/tex]
