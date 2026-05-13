@@ -1,0 +1,21 @@
+flowchart TD
+    A[Path + selected features S + instance x0] --> B[Build ordered selected-path CNF]
+    B --> B1[selected-feature unit clauses]
+    B --> B2[structural threshold order clauses]
+    B --> B3[path branch clauses]
+    B1 --> C{Classify CNF}
+    B2 --> C
+    B3 --> C
+    C -->|Horn| D[Route to structural_horn backend]
+    C -->|AntiHorn| E[Route to structural_antihorn backend]
+    C -->|2-CNF| F[Route to two_sat backend]
+    C -->|none| G[Raise NonTheoremPathError]
+    D --> H[Record metadata]
+    E --> H
+    F --> H
+    G --> H
+    H --> H1[axp_backend]
+    H --> H2[theorem_certified]
+    H --> H3[path_certificate]
+    H --> H4[theorem_mode_used]
+    H --> H5[rejected_reason]

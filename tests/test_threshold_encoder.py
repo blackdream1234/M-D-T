@@ -4,7 +4,8 @@ from gsnh_mdt.literals.base import GSNHLiteral
 from gsnh_mdt.literals.predicates import GSNHPredicate
 from gsnh_mdt.types import LanguageFamily
 from gsnh_mdt.sat.threshold_encoder import (
-    ThresholdEncoding, encode_horn_path, encode_antihorn_path
+    ThresholdEncoding, encode_horn_path, encode_antihorn_path, atom_id,
+    add_structural_order_clauses
 )
 from gsnh_mdt.sat.exact_solver import ExactSATSolver
 from gsnh_mdt.tree.explainer import weak_axp_check
@@ -116,3 +117,17 @@ def test_empty_path_sat():
     tree = T()
     assert explainer._is_sat_path(tree, [], np.array([0.0]), set()) is True
     assert tree.explainer_backend_ == "empty_path"
+
+
+def test_structural_order_all_pairs_count():
+    enc3 = ThresholdEncoding(atom_to_var={}, var_to_atom=[], clauses=[])
+    for t in (2.0, 5.0, 8.0):
+        atom_id(enc3, 0, t)
+    add_structural_order_clauses(enc3)
+    assert len(enc3.clauses) == 3
+
+    enc4 = ThresholdEncoding(atom_to_var={}, var_to_atom=[], clauses=[])
+    for t in (1.0, 2.0, 5.0, 8.0):
+        atom_id(enc4, 0, t)
+    add_structural_order_clauses(enc4)
+    assert len(enc4.clauses) == 6

@@ -1,0 +1,8 @@
+flowchart TB
+    A[Predicate-language families] --> B[1D\none threshold literal\nx_f >= t or x_f < t]
+    A --> C[Horn\nDisjunction with <=1 positive literal]
+    A --> D[AntiHorn\nDisjunction with <=1 negative literal]
+    A --> E[Square2CNF\n(l1 OR l2) AND (l3 OR l4)]
+    A --> F[ConjUI\nConjunction / box-style interval constraints\nauxiliary empirical family]
+    A --> G[Affine\nXOR / parity constraints\nauxiliary empirical family]
+    A --> H[BestPN\nadaptive per-node selection\nempirical by default\nconditionally theorem-certified\nonly with safe path certificates]
