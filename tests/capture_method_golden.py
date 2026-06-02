@@ -10,7 +10,8 @@ import os
 import json
 import numpy as np
 
-RS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+from data_path import DATA_DIR, RS_ROOT
+
 sys.path.insert(0, RS_ROOT)
 from gsnh_mdt.tree.builder import ExpertGSNHTree
 from gsnh_mdt.tree.stopping import StoppingCriteria
@@ -23,7 +24,7 @@ def parse_dl8(filepath):
 
 
 def train_tree(name, seed=42, max_depth=7):
-    X, y = parse_dl8(os.path.join(RS_ROOT, 'data', f'{name}.dl8'))
+    X, y = parse_dl8(os.path.join(DATA_DIR, f'{name}.dl8'))
     np.random.seed(seed)
     n = len(y)
     idx = np.random.permutation(n)
@@ -111,7 +112,7 @@ def main():
     datasets = ['vote', 'hepatitis', 'lymph', 'ionosphere', 'kr-vs-kp']
     golden = {}
     for name in datasets:
-        path = os.path.join(RS_ROOT, 'data', f'{name}.dl8')
+        path = os.path.join(DATA_DIR, f'{name}.dl8')
         if not os.path.exists(path):
             print(f"  SKIP {name}")
             continue
