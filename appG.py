@@ -714,13 +714,84 @@ DATASET_CATALOG = {
 AVAILABLE = {k:v for k,v in DATASET_CATALOG.items()
              if os.path.exists(os.path.join(DATA_DIR,v))}
 
-LANG_MAP = {"Horn":LanguageFamily.HORN,"Anti-Horn":LanguageFamily.ANTI_HORN,
-            "Square CNF":LanguageFamily.SQUARE_CNF,"Affine (XOR)":LanguageFamily.AFFINE,
-            "BEST_PER_NODE":LanguageFamily.BEST_PER_NODE}
-LANG_COLORS = {"Horn":"#00d4ff","Anti-Horn":"#b56bff","Square CNF":"#00ff88",
-               "Affine (XOR)":"#ffb300","BEST_PER_NODE":"#ff3b6e"}
-COMPLEXITY_TAG = {"Horn":"P","Anti-Horn":"P","Square CNF":"P",
-                  "Affine (XOR)":"P*","BEST_PER_NODE":"P"}
+# Language families exposed by the dashboard.
+# 1D is not a separate enum: it is the univariate restriction of Horn
+# with search_2d/search_3d disabled, matching the benchmark script.
+LANG_CONFIG = {
+    "1D": {
+        "family": LanguageFamily.HORN,
+        "search_1d": True,
+        "search_2d": False,
+        "search_3d": False,
+        "theorem_strict": True,
+        "category": "main",
+        "description": "Univariate threshold baseline",
+    },
+    "Horn": {
+        "family": LanguageFamily.HORN,
+        "search_1d": True,
+        "search_2d": True,
+        "search_3d": "auto",
+        "theorem_strict": True,
+        "category": "main",
+        "description": "Structural Horn backend",
+    },
+    "Anti-Horn": {
+        "family": LanguageFamily.ANTI_HORN,
+        "search_1d": True,
+        "search_2d": True,
+        "search_3d": "auto",
+        "theorem_strict": True,
+        "category": "main",
+        "description": "Structural AntiHorn backend",
+    },
+    "ConjUI": {
+        "family": LanguageFamily.CONJ_UI,
+        "search_1d": True,
+        "search_2d": True,
+        "search_3d": False,
+        "theorem_strict": False,
+        "category": "auxiliary",
+        "description": "Old SquareCNF / box-family behavior",
+    },
+    "Square2CNF": {
+        "family": LanguageFamily.SQUARE_2CNF,
+        "search_1d": True,
+        "search_2d": True,
+        "search_3d": False,
+        "theorem_strict": True,
+        "category": "main",
+        "description": "Paper-style 2-CNF certified with two_sat",
+    },
+    "Affine (XOR)": {
+        "family": LanguageFamily.AFFINE,
+        "search_1d": True,
+        "search_2d": True,
+        "search_3d": "auto",
+        "theorem_strict": False,
+        "category": "auxiliary",
+        "description": "XOR/Affine empirical backend",
+    },
+    "BEST_PER_NODE": {
+        "family": LanguageFamily.BEST_PER_NODE,
+        "search_1d": True,
+        "search_2d": True,
+        "search_3d": "auto",
+        "theorem_strict": False,
+        "category": "empirical",
+        "description": "Adaptive per-node heuristic; path-certified only when explicitly checked",
+    },
+}
+LANG_MAP = {name: cfg["family"] for name, cfg in LANG_CONFIG.items()}
+LANG_COLORS = {
+    "1D":"#38bdf8", "Horn":"#00d4ff", "Anti-Horn":"#b56bff",
+    "ConjUI":"#00ff88", "Square2CNF":"#22c55e",
+    "Affine (XOR)":"#ffb300", "BEST_PER_NODE":"#ff3b6e",
+}
+COMPLEXITY_TAG = {
+    "1D":"P✓", "Horn":"P✓", "Anti-Horn":"P✓", "ConjUI":"Aux",
+    "Square2CNF":"P✓", "Affine (XOR)":"Aux", "BEST_PER_NODE":"Emp",
+}
 
 # ═════════════════════════════════════════════════════════════════════
 # DATABASE + ARTIFACT REGISTRY
@@ -982,17 +1053,44 @@ def load_dl8_full(filename, seed=42):
 # ═════════════════════════════════════════════════════════════════════
 # TRAINING ENGINE
 # ═════════════════════════════════════════════════════════════════════
-def _make_tree(language, max_depth, gamma, n_feats):
+def _language_cfg(language_or_name):
+    """Return dashboard training config for a language label or raw enum."""
+    if isinstance(language_or_name, str) and language_or_name in LANG_CONFIG:
+        return LANG_CONFIG[language_or_name]
+    # Fallback for old cached calls that pass LanguageFamily directly.
+    for cfg in LANG_CONFIG.values():
+        if cfg["family"] == language_or_name:
+            return cfg
+    return {
+        "family": language_or_name,
+        "search_1d": True,
+        "search_2d": True,
+        "search_3d": "auto",
+        "theorem_strict": False,
+        "category": "custom",
+        "description": "Custom language configuration",
+    }
+
+def _make_tree(language, max_depth, gamma, n_feats, seed=42):
+    cfg = _language_cfg(language)
+    search_3d_cfg = cfg.get("search_3d", "auto")
+    search_3d = (n_feats <= 50) if search_3d_cfg == "auto" else bool(search_3d_cfg)
     return ExpertGSNHTree(
         stopping_criteria=StoppingCriteria(max_depth=max_depth,
             min_samples_leaf=5, min_samples_split=10),
-        n_bins=64, top_k_features=15, search_1d=True, search_2d=True,
-        search_3d=(n_feats <= 50), mode="journal", language=language,
+        n_bins=64, top_k_features=15,
+        search_1d=bool(cfg.get("search_1d", True)),
+        search_2d=bool(cfg.get("search_2d", True)),
+        search_3d=search_3d,
+        mode="journal",
+        language=cfg["family"],
+        theorem_strict=bool(cfg.get("theorem_strict", False)),
+        random_state=seed,
         use_look_ahead=(gamma > 0), look_ahead_gamma=gamma, verbose=False)
 
 def train_and_evaluate(X_tr, y_tr, X_te, y_te, language, max_depth,
                        gamma, n_axp=30, seed=42):
-    tree = _make_tree(language, max_depth, gamma, X_tr.shape[1])
+    tree = _make_tree(language, max_depth, gamma, X_tr.shape[1], seed=seed)
     t0 = time.time(); tree.fit(X_tr, y_tr); fit_time = time.time()-t0
     train_acc = float(tree.score(X_tr, y_tr))
     test_acc = float(tree.score(X_te, y_te))
@@ -1011,6 +1109,9 @@ def train_and_evaluate(X_tr, y_tr, X_te, y_te, language, max_depth,
         "axp_data":axp_data,"arity_counts":dict(tree.arity_counts_),
         "pattern_counts":dict(getattr(tree,"pattern_counts_",{})),
         "language_counts":dict(getattr(tree,"language_counts_",{})),
+        "axp_backend":getattr(tree,"explainer_backend_", "unknown"),
+        "axp_metadata":[getattr(m, "__dict__", str(m)) for m in getattr(tree,"axp_metadata_", [])],
+        "theorem_strict":bool(getattr(tree,"theorem_strict", False)),
         "summary":tree.get_summary(),"fit_time":round(fit_time,3),
         "std_acc":0,"ci95_acc":0,"fold_accs":None}
 
@@ -1093,9 +1194,10 @@ def compute_learning_curves(X_tr, y_tr, X_te, y_te, language, max_depth, gamma, 
 # ═════════════════════════════════════════════════════════════════════
 def build_tree_dot(tree):
     if tree.root_ is None: return 'digraph{N0[label="Empty"]}'
-    FILL={"Horn":"#00d4ff","AntiHorn":"#b56bff","SquareCNF":"#00ff88",
+    FILL={"Horn":"#00d4ff","AntiHorn":"#b56bff","ConjUI":"#00ff88",
+          "Square2CNF":"#22c55e","SquareCNF":"#00ff88",
           "Affine":"#ffb300","BestPerNode":"#ff3b6e","Any":"#64748b"}
-    FC={"Horn":"#000","AntiHorn":"#fff","SquareCNF":"#000",
+    FC={"Horn":"#000","AntiHorn":"#fff","ConjUI":"#000","Square2CNF":"#000","SquareCNF":"#000",
         "Affine":"#000","BestPerNode":"#fff","Any":"#fff"}
     lines=['digraph T{bgcolor="transparent"',
         'node[style="filled,rounded" shape=box fontname="Space Grotesk" fontsize=11 color="#ffffff20" penwidth=1.5]',
@@ -1231,7 +1333,7 @@ with st.sidebar:
     st.markdown('<div class="section-header" style="margin: 0 0 16px 0; padding: 12px 16px;"><span>🧬 Topology</span></div>', unsafe_allow_html=True)
     sel_langs = []
     for lang in LANG_MAP:
-        default = lang in ("Horn", "Square CNF", "BEST_PER_NODE")
+        default = lang in ("1D", "Horn", "Square2CNF", "BEST_PER_NODE")
         col = st.columns([0.15, 0.85])
         with col[0]:
             checked = st.checkbox(f"Enable {lang}", value=default, key=f"cb_{lang}", label_visibility="collapsed")
@@ -1242,10 +1344,10 @@ with st.sidebar:
             sel_langs.append(lang)
 
     has_affine = "Affine (XOR)" in sel_langs
-    has_interval = any(l in sel_langs for l in ("Horn","Anti-Horn","Square CNF"))
+    has_interval = any(l in sel_langs for l in ("1D","Horn","Anti-Horn","ConjUI","Square2CNF"))
     if has_affine and has_interval:
         st.markdown(f'<div style="margin-top: 16px; animation: pulse-danger 2s infinite;">{status_badge("NP-HARD Alert", "danger")}</div>', unsafe_allow_html=True)
-        st.markdown('<div style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; padding: 12px; background: rgba(255,59,110,0.05); border-radius: 8px; border-left: 2px solid #ff3b6e;">Schaefer 1978: Mixed topology → 3-SAT</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; padding: 12px; background: rgba(255,59,110,0.05); border-radius: 8px; border-left: 2px solid #ff3b6e;">Mixed auxiliary topology: report as empirical, not theorem-certified</div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -1253,15 +1355,15 @@ with st.sidebar:
     st.markdown('<div class="section-header" style="margin: 0 0 16px 0; padding: 12px 16px;"><span>⚙️ Parameters</span></div>', unsafe_allow_html=True)
     
     st.markdown('<div style="font-size: 0.7rem; color: #64748b; margin-bottom: 4px; font-weight: 600;">MAX DEPTH</div>', unsafe_allow_html=True)
-    max_depth = st.slider("Max Depth", 2, 15, 5, key="depth_slider", label_visibility="collapsed")
+    max_depth = st.slider("Max depth", 2, 15, 5, key="depth_slider", label_visibility="collapsed")
     st.markdown(f'<div style="text-align: right; font-size: 0.8rem; color: #00d4ff; font-family: Space Grotesk; font-weight: 700; margin-top: -10px;">{max_depth}</div>', unsafe_allow_html=True)
     
     st.markdown('<div style="font-size: 0.7rem; color: #64748b; margin-bottom: 4px; font-weight: 600; margin-top: 16px;">LOOK-AHEAD γ</div>', unsafe_allow_html=True)
-    gamma = st.slider("Look-ahead Gamma", 0.0, 1.0, 0.0, step=0.05, key="gamma_slider", label_visibility="collapsed")
+    gamma = st.slider("Look-ahead gamma", 0.0, 1.0, 0.0, step=0.05, key="gamma_slider", label_visibility="collapsed")
     st.markdown(f'<div style="text-align: right; font-size: 0.8rem; color: #b56bff; font-family: Space Grotesk; font-weight: 700; margin-top: -10px;">{gamma:.2f}</div>', unsafe_allow_html=True)
     
     st.markdown('<div style="font-size: 0.7rem; color: #64748b; margin-bottom: 4px; font-weight: 600; margin-top: 16px;">AXP SAMPLES</div>', unsafe_allow_html=True)
-    n_axp = st.slider("AXP Samples", 5, 100, 30, key="axp_slider", label_visibility="collapsed")
+    n_axp = st.slider("AXp samples", 5, 100, 30, key="axp_slider", label_visibility="collapsed")
     
     st.markdown('<div style="font-size: 0.7rem; color: #64748b; margin-bottom: 4px; font-weight: 600; margin-top: 16px;">SEED</div>', unsafe_allow_html=True)
     seed = st.number_input("Seed", 0, 9999, 42, key="seed_input", label_visibility="collapsed")
@@ -1270,7 +1372,7 @@ with st.sidebar:
     
     # Evaluation Mode
     st.markdown('<div class="section-header" style="margin: 0 0 16px 0; padding: 12px 16px;"><span>📐 Evaluation</span></div>', unsafe_allow_html=True)
-    eval_mode = st.radio("Evaluation Mode", ["Single split", "K-Fold CV"], index=0, label_visibility="collapsed")
+    eval_mode = st.radio("Evaluation mode", ["Single split", "K-Fold CV"], index=0, label_visibility="collapsed")
     k_folds = 1; do_wilcoxon = False
     if eval_mode == "K-Fold CV":
         k_folds = st.slider("K", 3, 10, 5)
@@ -1359,6 +1461,7 @@ st.markdown("""
 
 cached_results = st.session_state.get("active_results", {})
 viewing_cached = (not run_btn) and bool(cached_results)
+results = {}
 
 if not run_btn and not cached_results:
     st.markdown("""
@@ -1390,12 +1493,10 @@ if not run_btn and not cached_results:
     </div>
     """, unsafe_allow_html=True)
     st.stop()
-    import sys; sys.exit(0)
 
 if run_btn and not sel_langs:
     st.warning("Please select at least one language topology.")
     st.stop()
-    import sys; sys.exit(0)
 
 if viewing_cached:
     cfg = st.session_state.get("active_config", {})
@@ -1415,7 +1516,7 @@ if viewing_cached:
         pass
 
 has_affine = "Affine (XOR)" in sel_langs
-has_interval = any(l in sel_langs for l in ("Horn","Anti-Horn","Square CNF"))
+has_interval = any(l in sel_langs for l in ("1D","Horn","Anti-Horn","ConjUI","Square2CNF"))
 
 if run_btn:
     st.session_state.animation_key += 1
@@ -1484,10 +1585,10 @@ if run_btn:
         _log(f"Compiling {lang_name} search kernels...", "warning")
         if k_folds > 1:
             X_all, y_all = load_dl8_full(fn, seed=seed)
-            res = train_kfold(X_all, y_all, LANG_MAP[lang_name], max_depth, gamma,
+            res = train_kfold(X_all, y_all, lang_name, max_depth, gamma,
                               n_axp, k_folds, seed)
         else:
-            res = train_and_evaluate(X_tr, y_tr, X_te, y_te, LANG_MAP[lang_name],
+            res = train_and_evaluate(X_tr, y_tr, X_te, y_te, lang_name,
                                      max_depth, gamma, n_axp, seed)
         results[lang_name] = res
         ci_str = f" ±{res['ci95_acc']:.4f}" if res.get("ci95_acc",0) > 0 else ""
@@ -1759,7 +1860,8 @@ with tabs[3]:
     <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px; font-size: 0.8rem;">
         <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 12px; height: 12px; background: #00d4ff; border-radius: 3px;"></div> Horn</div>
         <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 12px; height: 12px; background: #b56bff; border-radius: 3px;"></div> Anti-Horn</div>
-        <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 12px; height: 12px; background: #00ff88; border-radius: 3px;"></div> Square CNF</div>
+        <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 12px; height: 12px; background: #00ff88; border-radius: 3px;"></div> ConjUI</div>
+        <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 12px; height: 12px; background: #22c55e; border-radius: 3px;"></div> Square2CNF</div>
         <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 12px; height: 12px; background: #ffb300; border-radius: 3px;"></div> Affine</div>
     </div>
     """, unsafe_allow_html=True)

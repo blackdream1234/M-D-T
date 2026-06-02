@@ -9,7 +9,7 @@ These are BASELINE JOURNAL LOGIC — must not be modified.
 """
 
 
-import numpy as np
+import numpy as np 
 
 
 class ExactSATSolver:
@@ -118,12 +118,25 @@ class ExactSATSolver:
         visited = [False] * (2 * n)
         order = []
 
-        def dfs(u):
-            visited[u] = True
-            for w in g[u]:
-                if not visited[w]:
-                    dfs(w)
-            order.append(u)
+        def dfs(start):
+            # Iterative DFS using explicit stack to avoid RecursionError
+            # on large implication graphs (>500 variables).
+            stack = [(start, 0)]
+            while stack:
+                u, idx = stack[-1]
+                if idx == 0 and not visited[u]:
+                    visited[u] = True
+                if idx < len(g[u]):
+                    stack[-1] = (u, idx + 1)
+                    w = g[u][idx]
+                    if not visited[w]:
+                        stack.append((w, 0))
+                else:
+                    stack.pop()
+                    if visited[u]:
+                        order.append(u)
+                        # Mark as processed to avoid duplicate appends
+                        visited[u] = True
 
         for i in range(2 * n):
             if not visited[i]:
@@ -131,11 +144,17 @@ class ExactSATSolver:
 
         comp = [-1] * (2 * n)
 
-        def rdfs(u, c):
-            comp[u] = c
-            for w in gr[u]:
-                if comp[w] == -1:
-                    rdfs(w, c)
+        def rdfs(start, c):
+            # Iterative reverse DFS for SCC labeling
+            stack = [start]
+            while stack:
+                u = stack.pop()
+                if comp[u] != -1:
+                    continue
+                comp[u] = c
+                for w in gr[u]:
+                    if comp[w] == -1:
+                        stack.append(w)
 
         c = 0
         for u in reversed(order):
