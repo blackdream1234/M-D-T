@@ -1393,7 +1393,7 @@ class LanguageComparisonBenchmark:
 def find_data_dir(explicit: Optional[str]) -> Optional[str]:
     if explicit:
         return explicit if os.path.isdir(explicit) else None
-    for d in ["data", "./data", "../data"]:
+    for d in ["/home/mrblackdream/Desktop/RS/gsnh_mdt/data", "data", "./data", "../data"]:
         if os.path.isdir(d) and glob.glob(os.path.join(d, "*.dl8")):
             return d
     return None
