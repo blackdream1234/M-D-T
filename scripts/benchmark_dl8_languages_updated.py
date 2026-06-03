@@ -266,6 +266,9 @@ class MethodConfig:
     enabled_by_default: bool = True
 
 
+THEOREM_MODE_METHODS = {"1D", "Horn", "AntiHorn", "Square2CNF"}
+
+
 def default_method_configs(include_square2cnf: bool = True) -> List[MethodConfig]:
     """Language configurations.
 
@@ -665,6 +668,8 @@ class LanguageComparisonBenchmark:
         ):
             if hasattr(tree, attr):
                 meta = getattr(tree, attr)
+                if isinstance(meta, list) and not meta:
+                    continue
                 if meta is not None:
                     return LanguageComparisonBenchmark._metadata_from_obj(meta)
 
@@ -687,7 +692,7 @@ class LanguageComparisonBenchmark:
             # Conservative default for old trees without explicit metadata.
             # Empirical methods stay non-certified unless the explainer records
             # a certificate.
-            if method.label == "Horn":
+            if method.label in {"1D", "Horn"}:
                 return {
                     "axp_backend": "structural_horn",
                     "theorem_certified": True,
@@ -904,9 +909,7 @@ class LanguageComparisonBenchmark:
                         # BestPN remains empirical by default. Add a separate
                         # BestPN-Certified method if you want to benchmark the
                         # path-certificate-restricted variant.
-                        theorem_strict_run = method.label in {
-                            "1D", "Horn", "AntiHorn", "Square2CNF"
-                        }
+                        theorem_mode_used = method.label in THEOREM_MODE_METHODS
 
                         tree = ET(
                             stopping_criteria=SC(
@@ -921,7 +924,7 @@ class LanguageComparisonBenchmark:
                             search_3d=method_search_3d,
                             mode=method.mode,
                             language=lang_family,
-                            theorem_strict=theorem_strict_run,
+                            theorem_strict=theorem_mode_used,
                             random_state=self.rs + run_idx,
                         )
                         tree.fit(X_tr, y_tr)
@@ -951,6 +954,10 @@ class LanguageComparisonBenchmark:
                             metrics[key]["errors"].append(f"run {run_idx}: {warning}")
 
                         theorem_meta = self._extract_tree_theorem_metadata(tree, method)
+                        # The benchmark method decides whether theorem-strict mode
+                        # was intentionally used.  Do not rely on optional AXp
+                        # metadata defaults, which may omit this flag.
+                        theorem_meta["theorem_mode_used"] = bool(theorem_mode_used)
 
                         metrics[key]["acc"].append(acc)
                         metrics[key]["size"].append(size)
