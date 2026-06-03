@@ -914,3 +914,155 @@ Proof.
     + exact HinCand.
   - exact Hin.
 Qed.
+
+(* ================================================================ *)
+(* 13. Finite assignment representation for affine atoms             *)
+(* ================================================================ *)
+
+(* The exhaustive affine checker enumerates finite lists of true atoms.
+   To connect this finite representation to an arbitrary Assignment rho,
+   we need a small extensionality condition: rho must respect the atom
+   equality used by affine_atom_eqb.
+
+   This matters because affine_atom_eqb compares thresholds using Qeq_bool.
+   Two rationals may be propositionally equal as Q values even if they are
+   written differently. A completely arbitrary Assignment could distinguish
+   them, so finite representation requires this compatibility assumption.
+*)
+
+Definition affine_assignment_respects_atom_eqb
+           (rho : Assignment) : Prop :=
+  forall a b : Atom,
+    affine_atom_eqb a b = true ->
+    rho a = rho b.
+
+Fixpoint affine_true_atoms_of_assignment
+         (rho : Assignment)
+         (atoms : list Atom) : list Atom :=
+  match atoms with
+  | [] => []
+  | a :: tl =>
+      if rho a
+      then a :: affine_true_atoms_of_assignment rho tl
+      else affine_true_atoms_of_assignment rho tl
+  end.
+
+Lemma affine_atom_eqb_refl :
+  forall a : Atom,
+    affine_atom_eqb a a = true.
+Proof.
+  intros [f t].
+  unfold affine_atom_eqb.
+  simpl.
+  rewrite Nat.eqb_refl.
+  simpl.
+  apply Qeq_bool_iff.
+  reflexivity.
+Qed.
+
+Theorem affine_true_atoms_of_assignment_in_powerset :
+  forall (rho : Assignment) (atoms : list Atom),
+    In
+      (affine_true_atoms_of_assignment rho atoms)
+      (affine_powerset_atoms atoms).
+Proof.
+  intros rho atoms.
+  induction atoms as [| a tl IH].
+  - simpl.
+    left.
+    reflexivity.
+  - simpl.
+    destruct (rho a) eqn:Ha.
+    + apply in_or_app.
+      right.
+      apply in_map.
+      exact IH.
+    + apply in_or_app.
+      left.
+      exact IH.
+Qed.
+
+Lemma affine_atom_in_bool_true_atoms_complete :
+  forall (rho : Assignment) (atoms : list Atom) (a : Atom),
+    In a atoms ->
+    rho a = true ->
+    affine_atom_in_bool
+      a
+      (affine_true_atoms_of_assignment rho atoms) = true.
+Proof.
+  intros rho atoms.
+  induction atoms as [| b tl IH]; intros a Hin Hrho.
+  - contradiction.
+  - simpl in Hin.
+    destruct Hin as [Heq | HinTl].
+    + subst b.
+      simpl.
+      rewrite Hrho.
+      simpl.
+      rewrite affine_atom_eqb_refl.
+      reflexivity.
+    + simpl.
+      destruct (rho b) eqn:Hb.
+      * simpl.
+        destruct (affine_atom_eqb a b) eqn:Hab.
+        -- reflexivity.
+        -- apply IH.
+           ++ exact HinTl.
+           ++ exact Hrho.
+      * apply IH.
+        -- exact HinTl.
+        -- exact Hrho.
+Qed.
+
+Lemma affine_atom_in_bool_true_atoms_sound :
+  forall (rho : Assignment) (atoms : list Atom) (a : Atom),
+    affine_assignment_respects_atom_eqb rho ->
+    affine_atom_in_bool
+      a
+      (affine_true_atoms_of_assignment rho atoms) = true ->
+    rho a = true.
+Proof.
+  intros rho atoms.
+  induction atoms as [| b tl IH]; intros a Hrespect HinBool.
+  - simpl in HinBool.
+    discriminate.
+  - simpl in HinBool.
+    simpl.
+    destruct (rho b) eqn:Hb.
+    + simpl in HinBool.
+      destruct (affine_atom_eqb a b) eqn:Hab.
+      * rewrite (Hrespect a b Hab).
+        exact Hb.
+      * apply IH.
+        -- exact Hrespect.
+        -- exact HinBool.
+    + apply IH.
+      * exact Hrespect.
+      * exact HinBool.
+Qed.
+
+Theorem affine_true_atoms_assignment_agrees_on_atoms :
+  forall (rho : Assignment) (atoms : list Atom) (a : Atom),
+    affine_assignment_respects_atom_eqb rho ->
+    In a atoms ->
+    affine_assignment_from_true_atoms
+      (affine_true_atoms_of_assignment rho atoms) a = rho a.
+Proof.
+  intros rho atoms a Hrespect Hin.
+  unfold affine_assignment_from_true_atoms.
+  destruct (rho a) eqn:Hrho.
+  - apply affine_atom_in_bool_true_atoms_complete.
+    + exact Hin.
+    + exact Hrho.
+  - destruct
+      (affine_atom_in_bool
+         a
+         (affine_true_atoms_of_assignment rho atoms)) eqn:Hmem.
+    + pose proof
+        (affine_atom_in_bool_true_atoms_sound
+           rho atoms a Hrespect Hmem)
+        as Htrue.
+      rewrite Hrho in Htrue.
+      discriminate.
+    + reflexivity.
+Qed.
