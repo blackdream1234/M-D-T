@@ -1191,3 +1191,228 @@ Proof.
   apply affine_system_evalb_agree.
   exact Hagree.
 Qed.
+(* ================================================================ *)
+(* 15. Completeness bridge from Assignment to finite candidates      *)
+(* ================================================================ *)
+
+(* Section 13 showed that any equality-compatible Assignment rho can be
+   represented over a finite atom list by collecting exactly the atoms
+   assigned true by rho.
+
+   Section 14 showed that affine evaluation is preserved when assignments
+   agree on the atoms used by the system.
+
+   This section combines both results: if an arbitrary compatible rho
+   satisfies an affine system/path, then the exhaustive finite checker has
+   a corresponding finite candidate.
+*)
+
+Theorem affine_system_evalb_true_atoms_of_assignment :
+  forall (rho : Assignment) (eqs : list AffineEquation),
+    affine_assignment_respects_atom_eqb rho ->
+    affine_system_evalb
+      (affine_assignment_from_true_atoms
+         (affine_true_atoms_of_assignment
+            rho
+            (affine_atoms_of_system eqs)))
+      eqs
+    =
+    affine_system_evalb rho eqs.
+Proof.
+  intros rho eqs Hrespect.
+  apply affine_system_evalb_agree.
+  unfold assignments_agree_on_atoms.
+  intros a Hin.
+  apply affine_true_atoms_assignment_agrees_on_atoms.
+  - exact Hrespect.
+  - exact Hin.
+Qed.
+
+Theorem find_affine_assignment_under_selection_from_candidates_complete_candidate :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (atoms : list Atom)
+         (eqs : list AffineEquation)
+         (candidates : list (list Atom))
+         (witness : list Atom),
+    In witness candidates ->
+    affine_system_evalb_under_selection
+      x0 S atoms eqs witness = true ->
+    exists found : list Atom,
+      find_affine_assignment_under_selection_from_candidates
+        x0 S atoms eqs candidates = Some found.
+Proof.
+  intros x0 S atoms eqs candidates.
+  induction candidates as [| cand tl IH]; intros witness Hin Hwit.
+  - contradiction.
+  - simpl in Hin.
+    simpl.
+    destruct
+      (affine_system_evalb_under_selection
+         x0 S atoms eqs cand) eqn:Hcand.
+    + exists cand.
+      reflexivity.
+    + destruct Hin as [Heq | HinTl].
+      * subst witness.
+        rewrite Hwit in Hcand.
+        discriminate.
+      * apply (IH witness).
+        -- exact HinTl.
+        -- exact Hwit.
+Qed.
+
+Theorem find_affine_satisfying_assignment_under_selection_complete_from_assignment :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (eqs : list AffineEquation)
+         (rho : Assignment),
+    affine_assignment_respects_atom_eqb rho ->
+    affine_selected_candidate_agreementb
+      x0 S
+      (affine_atoms_of_system eqs)
+      (affine_true_atoms_of_assignment
+         rho
+         (affine_atoms_of_system eqs)) = true ->
+    affine_system_evalb rho eqs = true ->
+    exists found : list Atom,
+      find_affine_satisfying_assignment_under_selection
+        x0 S eqs (affine_atoms_of_system eqs) = Some found.
+Proof.
+  intros x0 S eqs rho Hrespect Hsel Hsys.
+  unfold find_affine_satisfying_assignment_under_selection.
+  apply find_affine_assignment_under_selection_from_candidates_complete_candidate
+    with
+      (witness :=
+         affine_true_atoms_of_assignment
+           rho
+           (affine_atoms_of_system eqs)).
+  - apply affine_true_atoms_of_assignment_in_powerset.
+  - unfold affine_system_evalb_under_selection.
+    apply andb_true_iff.
+    split.
+    + exact Hsel.
+    + rewrite affine_system_evalb_true_atoms_of_assignment.
+      * exact Hsys.
+      * exact Hrespect.
+Qed.
+
+Theorem find_affine_path_assignment_under_selection_complete_from_assignment :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (path : AffinePath)
+         (rho : Assignment),
+    affine_assignment_respects_atom_eqb rho ->
+    affine_selected_candidate_agreementb
+      x0 S
+      (affine_atoms_of_system (affine_path_equations path))
+      (affine_true_atoms_of_assignment
+         rho
+         (affine_atoms_of_system (affine_path_equations path))) = true ->
+    affine_path_evalb rho path = true ->
+    exists found : list Atom,
+      find_affine_satisfying_assignment_under_selection
+        x0 S
+        (affine_path_equations path)
+        (affine_atoms_of_system (affine_path_equations path))
+      = Some found.
+Proof.
+  intros x0 S path rho Hrespect Hsel Hpath.
+  assert
+    (Hsys :
+       affine_system_evalb rho (affine_path_equations path) = true).
+  {
+    rewrite affine_path_encoding_correct.
+    exact Hpath.
+  }
+  exact
+    (find_affine_satisfying_assignment_under_selection_complete_from_assignment
+       x0
+       S
+       (affine_path_equations path)
+       rho
+       Hrespect
+       Hsel
+       Hsys).
+Qed.
+
+Theorem affine_path_exhaustive_unsat_check_under_selection_no_respecting_assignment :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (path : AffinePath)
+         (rho : Assignment),
+    affine_path_exhaustive_unsat_check_under_selection
+      x0 S path = true ->
+    affine_assignment_respects_atom_eqb rho ->
+    affine_selected_candidate_agreementb
+      x0 S
+      (affine_atoms_of_system (affine_path_equations path))
+      (affine_true_atoms_of_assignment
+         rho
+         (affine_atoms_of_system (affine_path_equations path))) = true ->
+    affine_path_evalb rho path = false.
+
+Proof.
+  intros x0 S path rho Hcheck Hrespect Hsel.
+
+  set
+    (cand :=
+       affine_true_atoms_of_assignment
+         rho
+         (affine_atoms_of_system (affine_path_equations path))).
+
+  assert
+    (HinCand :
+       In cand
+          (affine_powerset_atoms
+             (affine_atoms_of_system (affine_path_equations path)))).
+  {
+    unfold cand.
+    apply affine_true_atoms_of_assignment_in_powerset.
+  }
+
+  assert
+    (HselCand :
+       affine_selected_candidate_agreementb
+         x0 S
+         (affine_atoms_of_system (affine_path_equations path))
+         cand = true).
+  {
+    unfold cand.
+    exact Hsel.
+  }
+
+  pose proof
+    (affine_path_exhaustive_unsat_check_under_selection_sound_candidates
+       x0 S path cand Hcheck HinCand)
+    as Hblocked.
+
+  unfold affine_selected_candidate_path_evalb in Hblocked.
+  rewrite HselCand in Hblocked.
+  simpl in Hblocked.
+
+  assert
+    (Hagree :
+       assignments_agree_on_atoms
+         (affine_atoms_of_system (affine_path_equations path))
+         (affine_assignment_from_true_atoms cand)
+         rho).
+  {
+    unfold assignments_agree_on_atoms.
+    intros a Hin.
+    unfold cand.
+    apply affine_true_atoms_assignment_agrees_on_atoms.
+    - exact Hrespect.
+    - exact Hin.
+  }
+
+  pose proof
+    (affine_path_evalb_agree
+       (affine_assignment_from_true_atoms cand)
+       rho
+       path
+       Hagree)
+    as HevalAgree.
+
+  rewrite HevalAgree in Hblocked.
+  exact Hblocked.
+Qed.
