@@ -618,3 +618,299 @@ Proof.
     + exact HinCand.
   - exact Hin.
 Qed.
+
+(* ================================================================ *)
+(* 10. Affine exhaustive checker under selected-feature constraints  *)
+(* ================================================================ *)
+
+(* AXp semantics requires selected features to keep their original
+   truth values from x0. This section adds that constraint to the
+   finite exhaustive affine checker.
+
+   The checker still works over finite candidate assignments.
+   It is still not the final polynomial GF(2) solver.
+*)
+
+Fixpoint affine_feature_in_bool
+         (f : Feature) (S : list Feature) : bool :=
+  match S with
+  | [] => false
+  | g :: tl =>
+      if Nat.eqb f g
+      then true
+      else affine_feature_in_bool f tl
+  end.
+
+Definition affine_selected_candidate_agreementb
+           (x0 : Valuation)
+           (S : list Feature)
+           (atoms : list Atom)
+           (true_atoms : list Atom) : bool :=
+  forallb
+    (fun a =>
+       let '(f,t) := a in
+       if affine_feature_in_bool f S
+       then
+         Bool.eqb
+           (affine_assignment_from_true_atoms true_atoms (f,t))
+           (induced_assignment x0 (f,t))
+       else true)
+    atoms.
+
+Definition affine_system_evalb_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (atoms : list Atom)
+           (eqs : list AffineEquation)
+           (true_atoms : list Atom) : bool :=
+  andb
+    (affine_selected_candidate_agreementb x0 S atoms true_atoms)
+    (affine_system_evalb
+       (affine_assignment_from_true_atoms true_atoms)
+       eqs).
+
+Fixpoint find_affine_assignment_under_selection_from_candidates
+         (x0 : Valuation)
+         (S : list Feature)
+         (atoms : list Atom)
+         (eqs : list AffineEquation)
+         (candidates : list (list Atom)) : option (list Atom) :=
+  match candidates with
+  | [] => None
+  | true_atoms :: tl =>
+      if affine_system_evalb_under_selection x0 S atoms eqs true_atoms
+      then Some true_atoms
+      else
+        find_affine_assignment_under_selection_from_candidates
+          x0 S atoms eqs tl
+  end.
+
+Definition find_affine_satisfying_assignment_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (eqs : list AffineEquation)
+           (atoms : list Atom) : option (list Atom) :=
+  find_affine_assignment_under_selection_from_candidates
+    x0 S atoms eqs (affine_powerset_atoms atoms).
+
+Definition affine_exhaustive_unsat_check_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (eqs : list AffineEquation)
+           (atoms : list Atom) : bool :=
+  affine_option_is_none
+    (find_affine_satisfying_assignment_under_selection
+       x0 S eqs atoms).
+
+Theorem find_affine_assignment_under_selection_from_candidates_sound :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (atoms : list Atom)
+         (eqs : list AffineEquation)
+         (candidates : list (list Atom))
+         (true_atoms : list Atom),
+    find_affine_assignment_under_selection_from_candidates
+      x0 S atoms eqs candidates = Some true_atoms ->
+    affine_system_evalb_under_selection
+      x0 S atoms eqs true_atoms = true.
+Proof.
+  intros x0 S atoms eqs candidates.
+  induction candidates as [| cand tl IH]; intros true_atoms Hfind.
+  - simpl in Hfind.
+    discriminate.
+  - simpl in Hfind.
+    destruct
+      (affine_system_evalb_under_selection
+         x0 S atoms eqs cand) eqn:Hcand.
+    + inversion Hfind.
+      subst true_atoms.
+      exact Hcand.
+    + apply IH.
+      exact Hfind.
+Qed.
+
+Theorem find_affine_satisfying_assignment_under_selection_sound :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (eqs : list AffineEquation)
+         (atoms true_atoms : list Atom),
+    find_affine_satisfying_assignment_under_selection
+      x0 S eqs atoms = Some true_atoms ->
+    affine_selected_candidate_agreementb
+      x0 S atoms true_atoms = true
+    /\
+    affine_system_evalb
+      (affine_assignment_from_true_atoms true_atoms)
+      eqs = true.
+Proof.
+  intros x0 S eqs atoms true_atoms Hfind.
+  unfold find_affine_satisfying_assignment_under_selection in Hfind.
+  pose proof
+    (find_affine_assignment_under_selection_from_candidates_sound
+       x0 S atoms eqs
+       (affine_powerset_atoms atoms)
+       true_atoms
+       Hfind)
+    as Hunder.
+  unfold affine_system_evalb_under_selection in Hunder.
+  apply andb_true_iff in Hunder.
+  exact Hunder.
+Qed.
+
+Lemma find_affine_assignment_under_selection_from_candidates_none_unsat :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (atoms : list Atom)
+         (eqs : list AffineEquation)
+         (candidates : list (list Atom)),
+    find_affine_assignment_under_selection_from_candidates
+      x0 S atoms eqs candidates = None ->
+    forall true_atoms : list Atom,
+      In true_atoms candidates ->
+      affine_system_evalb_under_selection
+        x0 S atoms eqs true_atoms = false.
+Proof.
+  intros x0 S atoms eqs candidates.
+  induction candidates as [| cand tl IH]; intros Hnone true_atoms Hin.
+  - contradiction.
+  - simpl in Hnone.
+    destruct
+      (affine_system_evalb_under_selection
+         x0 S atoms eqs cand) eqn:Hcand.
+    + discriminate.
+    + simpl in Hin.
+      destruct Hin as [Heq | HinTl].
+      * subst true_atoms.
+        exact Hcand.
+      * apply IH.
+        -- exact Hnone.
+        -- exact HinTl.
+Qed.
+
+Theorem affine_exhaustive_unsat_check_under_selection_sound_candidates :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (eqs : list AffineEquation)
+         (atoms true_atoms : list Atom),
+    affine_exhaustive_unsat_check_under_selection
+      x0 S eqs atoms = true ->
+    In true_atoms (affine_powerset_atoms atoms) ->
+    affine_system_evalb_under_selection
+      x0 S atoms eqs true_atoms = false.
+Proof.
+  intros x0 S eqs atoms true_atoms Hcheck Hin.
+  unfold affine_exhaustive_unsat_check_under_selection in Hcheck.
+  unfold find_affine_satisfying_assignment_under_selection in Hcheck.
+  destruct
+    (find_affine_assignment_under_selection_from_candidates
+       x0 S atoms eqs (affine_powerset_atoms atoms)) eqn:Hfind.
+  - simpl in Hcheck.
+    discriminate.
+  - eapply find_affine_assignment_under_selection_from_candidates_none_unsat.
+    + exact Hfind.
+    + exact Hin.
+Qed.
+
+(* ================================================================ *)
+(* 11. Path-level affine UNSAT under selected-feature constraints    *)
+(* ================================================================ *)
+
+Definition affine_selected_candidate_path_evalb
+           (x0 : Valuation)
+           (S : list Feature)
+           (path : AffinePath)
+           (true_atoms : list Atom) : bool :=
+  let eqs := affine_path_equations path in
+  let atoms := affine_atoms_of_system eqs in
+  andb
+    (affine_selected_candidate_agreementb
+       x0 S atoms true_atoms)
+    (affine_path_evalb
+       (affine_assignment_from_true_atoms true_atoms)
+       path).
+
+Definition affine_path_exhaustive_unsat_check_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (path : AffinePath) : bool :=
+  let eqs := affine_path_equations path in
+  let atoms := affine_atoms_of_system eqs in
+  affine_exhaustive_unsat_check_under_selection
+    x0 S eqs atoms.
+
+Theorem affine_path_exhaustive_unsat_check_under_selection_sound_candidates :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (path : AffinePath)
+         (true_atoms : list Atom),
+    affine_path_exhaustive_unsat_check_under_selection
+      x0 S path = true ->
+    In true_atoms
+       (affine_powerset_atoms
+          (affine_atoms_of_system (affine_path_equations path))) ->
+    affine_selected_candidate_path_evalb
+      x0 S path true_atoms = false.
+Proof.
+  intros x0 S path true_atoms Hcheck Hin.
+  unfold affine_path_exhaustive_unsat_check_under_selection in Hcheck.
+  pose proof
+    (affine_exhaustive_unsat_check_under_selection_sound_candidates
+       x0 S
+       (affine_path_equations path)
+       (affine_atoms_of_system (affine_path_equations path))
+       true_atoms
+       Hcheck
+       Hin)
+    as HunderFalse.
+  unfold affine_system_evalb_under_selection in HunderFalse.
+  unfold affine_selected_candidate_path_evalb.
+  rewrite
+    (affine_path_encoding_correct
+       (affine_assignment_from_true_atoms true_atoms)
+       path)
+    in HunderFalse.
+  exact HunderFalse.
+Qed.
+(* ================================================================ *)
+(* 12. All affine opposite paths blocked under selection             *)
+(* ================================================================ *)
+
+Definition affine_all_paths_exhaustive_unsat_check_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (paths : list AffinePath) : bool :=
+  forallb
+    (affine_path_exhaustive_unsat_check_under_selection x0 S)
+    paths.
+
+Definition affine_candidate_opposite_paths_blocked_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (opposite_paths : list AffinePath) : Prop :=
+  forall (p : AffinePath) (true_atoms : list Atom),
+    In p opposite_paths ->
+    In true_atoms
+       (affine_powerset_atoms
+          (affine_atoms_of_system (affine_path_equations p))) ->
+    affine_selected_candidate_path_evalb
+      x0 S p true_atoms = false.
+
+Theorem affine_all_paths_exhaustive_unsat_check_under_selection_sound_candidates :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (opposite_paths : list AffinePath),
+    affine_all_paths_exhaustive_unsat_check_under_selection
+      x0 S opposite_paths = true ->
+    affine_candidate_opposite_paths_blocked_under_selection
+      x0 S opposite_paths.
+Proof.
+  intros x0 S opposite_paths Hcheck.
+  unfold affine_candidate_opposite_paths_blocked_under_selection.
+  intros p true_atoms Hin HinCand.
+  unfold affine_all_paths_exhaustive_unsat_check_under_selection in Hcheck.
+  apply forallb_forall with (x := p) in Hcheck.
+  - eapply affine_path_exhaustive_unsat_check_under_selection_sound_candidates.
+    + exact Hcheck.
+    + exact HinCand.
+  - exact Hin.
+Qed.
