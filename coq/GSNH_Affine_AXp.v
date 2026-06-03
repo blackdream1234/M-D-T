@@ -1066,3 +1066,128 @@ Proof.
       discriminate.
     + reflexivity.
 Qed.
+
+(* ================================================================ *)
+(* 14. Assignment agreement preserves affine evaluation              *)
+(* ================================================================ *)
+
+Definition assignments_agree_on_atoms
+           (atoms : list Atom)
+           (rho sigma : Assignment) : Prop :=
+  forall a : Atom,
+    In a atoms ->
+    rho a = sigma a.
+
+Lemma signed_evalb_agree :
+  forall (rho sigma : Assignment)
+         (atoms : list Atom)
+         (sa : SignedAtom),
+    assignments_agree_on_atoms atoms rho sigma ->
+    In sa.(sa_atom) atoms ->
+    signed_evalb rho sa = signed_evalb sigma sa.
+Proof.
+  intros rho sigma atoms sa Hagree Hin.
+  unfold signed_evalb.
+  destruct sa as [a pos].
+  simpl in *.
+  rewrite (Hagree a Hin).
+  reflexivity.
+Qed.
+
+Lemma affine_lhs_evalb_agree_terms :
+  forall (rho sigma : Assignment)
+         (terms : list SignedAtom),
+    (forall sa : SignedAtom,
+        In sa terms ->
+        signed_evalb rho sa = signed_evalb sigma sa) ->
+    affine_lhs_evalb rho terms = affine_lhs_evalb sigma terms.
+Proof.
+  intros rho sigma terms Hagree.
+  unfold affine_lhs_evalb.
+  induction terms as [| sa tl IH].
+  - reflexivity.
+  - simpl.
+    rewrite Hagree.
+    + rewrite IH.
+      * reflexivity.
+      * intros sa' Hin.
+        apply Hagree.
+        simpl.
+        right.
+        exact Hin.
+    + simpl.
+      left.
+      reflexivity.
+Qed.
+
+Theorem affine_equation_evalb_agree :
+  forall (rho sigma : Assignment)
+         (e : AffineEquation),
+    assignments_agree_on_atoms
+      (affine_atoms_of_equation e) rho sigma ->
+    affine_equation_evalb rho e =
+    affine_equation_evalb sigma e.
+Proof.
+  intros rho sigma e Hagree.
+  unfold affine_equation_evalb.
+  f_equal.
+  unfold affine_atoms_of_equation in Hagree.
+  apply affine_lhs_evalb_agree_terms.
+  intros sa Hin.
+  apply signed_evalb_agree
+    with (atoms := map sa_atom (ae_terms e)).
+  - exact Hagree.
+  - apply in_map.
+    exact Hin.
+Qed.
+
+Lemma affine_system_evalb_agree :
+  forall (rho sigma : Assignment)
+         (eqs : list AffineEquation),
+    assignments_agree_on_atoms
+      (affine_atoms_of_system eqs) rho sigma ->
+    affine_system_evalb rho eqs =
+    affine_system_evalb sigma eqs.
+Proof.
+  intros rho sigma eqs Hagree.
+  unfold affine_system_evalb.
+  induction eqs as [| e tl IH].
+  - reflexivity.
+  - simpl.
+    rewrite affine_equation_evalb_agree
+      with (sigma := sigma).
+    + rewrite IH.
+      * reflexivity.
+      * unfold assignments_agree_on_atoms.
+        intros a Hin.
+        apply Hagree.
+        unfold affine_atoms_of_system.
+        simpl.
+        apply in_or_app.
+        right.
+        exact Hin.
+    + unfold assignments_agree_on_atoms.
+      intros a Hin.
+      apply Hagree.
+      unfold affine_atoms_of_system.
+      simpl.
+      apply in_or_app.
+      left.
+      exact Hin.
+Qed.
+
+Theorem affine_path_evalb_agree :
+  forall (rho sigma : Assignment)
+         (path : AffinePath),
+    assignments_agree_on_atoms
+      (affine_atoms_of_system (affine_path_equations path))
+      rho sigma ->
+    affine_path_evalb rho path =
+    affine_path_evalb sigma path.
+Proof.
+  intros rho sigma path Hagree.
+  rewrite <- affine_path_encoding_correct.
+  rewrite <- affine_path_encoding_correct.
+  apply affine_system_evalb_agree.
+  exact Hagree.
+Qed.
