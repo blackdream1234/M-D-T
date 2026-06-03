@@ -6,22 +6,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RS_ROOT = str(REPO_ROOT)
-_PREFERRED_DATA_DIR = Path("/home/mrblackdream/Desktop/RS/gsnh_mdt/data")
 _DEFAULT_DATA_DIR = REPO_ROOT / "data"
 
 
 def find_data_dir() -> str:
     """Return the benchmark .dl8 data directory.
 
-    The preferred benchmark-data location is the absolute workstation path
-    ``/home/mrblackdream/Desktop/RS/gsnh_mdt/data``.  ``GSNH_MDT_DATA_DIR`` or
-    ``DATA_DIR`` may override this for local runs; if neither override is set,
-    tests fall back to the repo-local ``data/`` directory.
+    The canonical repository layout stores benchmark data in ``<repo>/data``.
+    ``GSNH_MDT_DATA_DIR`` or ``DATA_DIR`` may override this for local runs.
     """
-    for candidate in (_PREFERRED_DATA_DIR,):
-        if candidate.is_dir() and any(candidate.glob("*.dl8")):
-            return str(candidate)
-
     for env_name in ("GSNH_MDT_DATA_DIR", "DATA_DIR"):
         env_value = os.environ.get(env_name)
         if env_value:

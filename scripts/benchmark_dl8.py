@@ -851,8 +851,8 @@ def main():
     
     # Find data
     data_dir = None
-    for d in ['/home/mrblackdream/Desktop/RS/gsnh_mdt/data', 'data', './data', '../data']:
-        if os.path.isdir(d) and glob.glob(os.path.join(d, '*.dl8')):
+    for d in [os.environ.get('GSNH_MDT_DATA_DIR'), os.environ.get('DATA_DIR'), os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data')), 'data', './data', '../data']:
+        if d and os.path.isdir(d) and glob.glob(os.path.join(d, '*.dl8')):
             data_dir = d
             break
     

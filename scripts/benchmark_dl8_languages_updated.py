@@ -1396,7 +1396,6 @@ def find_data_dir(explicit: Optional[str]) -> Optional[str]:
 
     script_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     candidates = [
-        "/home/mrblackdream/Desktop/RS/gsnh_mdt/data",
         os.environ.get("GSNH_MDT_DATA_DIR"),
         os.environ.get("DATA_DIR"),
         os.path.join(script_root, "data"),
