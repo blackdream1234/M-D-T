@@ -26,7 +26,8 @@ DATA_DIR = find_data_dir()
 
 
 def has_dl8_data() -> bool:
-    return Path(DATA_DIR).is_dir() and any(Path(DATA_DIR).glob("*.dl8"))
+    data_dir = Path(DATA_DIR)
+    return data_dir.is_dir() and any(data_dir.rglob("*.dl8"))
 
 
 HAS_DL8_DATA = has_dl8_data()
