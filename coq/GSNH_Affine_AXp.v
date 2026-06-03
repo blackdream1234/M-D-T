@@ -18,7 +18,6 @@ Require Import Coq.Bool.Bool.
 Require Import Coq.QArith.QArith.
 Require Import GSNH_Threshold_AXp.
 
-
 Import ListNotations.
 Open Scope Q_scope.
 
@@ -205,3 +204,121 @@ Example affine_xor_example_false_branch :
 Proof.
   reflexivity.
 Qed.
+
+(* ================================================================ *)
+(* 5. Selected-feature agreement for affine atoms                    *)
+(* ================================================================ *)
+
+Definition affine_atoms_of_equation (e : AffineEquation) : list Atom :=
+  map sa_atom e.(ae_terms).
+
+Definition affine_atoms_of_system (eqs : list AffineEquation) : list Atom :=
+  flat_map affine_atoms_of_equation eqs.
+
+Definition affine_selected_atom_agreement
+           (x0 : Valuation)
+           (S : list Feature)
+           (atoms : list Atom)
+           (rho : Assignment) : Prop :=
+  forall (f : Feature) (t : Threshold),
+    In (f,t) atoms ->
+    In f S ->
+    induced_assignment x0 (f,t) = rho (f,t).
+
+Definition affine_system_satisfiable_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (eqs : list AffineEquation) : Prop :=
+  exists rho : Assignment,
+    affine_selected_atom_agreement
+      x0 S (affine_atoms_of_system eqs) rho
+    /\
+    affine_system_evalb rho eqs = true.
+
+Definition affine_path_satisfiable_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (path : AffinePath) : Prop :=
+  exists rho : Assignment,
+    affine_selected_atom_agreement
+      x0 S (affine_atoms_of_system (affine_path_equations path)) rho
+    /\
+    affine_path_evalb rho path = true.
+
+Theorem affine_path_system_satisfiable_equiv :
+  forall (x0 : Valuation) (S : list Feature) (path : AffinePath),
+    affine_system_satisfiable_under_selection
+      x0 S (affine_path_equations path)
+    <->
+    affine_path_satisfiable_under_selection x0 S path.
+Proof.
+  intros x0 S path.
+  split.
+  - intros [rho [Hagree Hsys]].
+    exists rho.
+    split.
+    + exact Hagree.
+    + rewrite <- affine_path_encoding_correct.
+      exact Hsys.
+  - intros [rho [Hagree Hpath]].
+    exists rho.
+    split.
+    + exact Hagree.
+    + rewrite affine_path_encoding_correct.
+      exact Hpath.
+Qed.
+
+(* ================================================================ *)
+(* 6. Prop-level affine weak-AXp condition                           *)
+(* ================================================================ *)
+
+Definition affine_opposite_paths_blocked_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (opposite_paths : list AffinePath) : Prop :=
+  forall p : AffinePath,
+    In p opposite_paths ->
+    ~ affine_path_satisfiable_under_selection x0 S p.
+
+Definition affine_weak_axp_selected_path_condition
+           (x0 : Valuation)
+           (S : list Feature)
+           (opposite_paths : list AffinePath) : Prop :=
+  affine_opposite_paths_blocked_under_selection x0 S opposite_paths.
+
+Definition affine_system_paths_blocked_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (opposite_paths : list AffinePath) : Prop :=
+  forall p : AffinePath,
+    In p opposite_paths ->
+    ~ affine_system_satisfiable_under_selection
+        x0 S (affine_path_equations p).
+
+Theorem affine_weak_axp_path_system_equiv :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (opposite_paths : list AffinePath),
+    affine_system_paths_blocked_under_selection x0 S opposite_paths
+    <->
+    affine_weak_axp_selected_path_condition x0 S opposite_paths.
+Proof.
+  intros x0 S opposite_paths.
+  split.
+  - intros Hsys.
+    unfold affine_weak_axp_selected_path_condition.
+    unfold affine_opposite_paths_blocked_under_selection.
+    intros p Hin HsatPath.
+    apply (Hsys p Hin).
+    apply affine_path_system_satisfiable_equiv.
+    exact HsatPath.
+  - intros Hpath.
+    unfold affine_system_paths_blocked_under_selection.
+    intros p Hin HsatSys.
+    unfold affine_weak_axp_selected_path_condition in Hpath.
+    unfold affine_opposite_paths_blocked_under_selection in Hpath.
+    apply (Hpath p Hin).
+    apply affine_path_system_satisfiable_equiv.
+    exact HsatSys.
+Qed.
+
