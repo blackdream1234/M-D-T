@@ -10,8 +10,10 @@ import os
 import json
 import numpy as np
 
-# Add RS root so we can import the monolith
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+from data_path import DATA_DIR, RS_ROOT
+
+# Add repo root so we can import the package/monolith
+sys.path.insert(0, RS_ROOT)
 from gsnh_mdt.tree.builder import ExpertGSNHTree
 from gsnh_mdt.tree.stopping import StoppingCriteria
 from gsnh_mdt.types import LanguageFamily
@@ -129,11 +131,10 @@ def capture_reproducibility(X, y, seed=42):
 
 
 def main():
-    rs_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
     datasets = {
-        'lymph': os.path.join(rs_root, 'data', 'lymph.dl8'),
-        'hepatitis': os.path.join(rs_root, 'data', 'hepatitis.dl8'),
-        'vote': os.path.join(rs_root, 'data', 'vote.dl8'),
+        'lymph': os.path.join(DATA_DIR, 'lymph.dl8'),
+        'hepatitis': os.path.join(DATA_DIR, 'hepatitis.dl8'),
+        'vote': os.path.join(DATA_DIR, 'vote.dl8'),
     }
 
     golden = {}

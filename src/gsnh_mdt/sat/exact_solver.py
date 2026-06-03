@@ -118,49 +118,41 @@ class ExactSATSolver:
         visited = [False] * (2 * n)
         order = []
 
-        def dfs(start):
-            # Iterative DFS using explicit stack to avoid RecursionError
-            # on large implication graphs (>500 variables).
-            stack = [(start, 0)]
-            while stack:
-                u, idx = stack[-1]
-                if idx == 0 and not visited[u]:
-                    visited[u] = True
-                if idx < len(g[u]):
-                    stack[-1] = (u, idx + 1)
-                    w = g[u][idx]
-                    if not visited[w]:
-                        stack.append((w, 0))
-                else:
-                    stack.pop()
-                    if visited[u]:
-                        order.append(u)
-                        # Mark as processed to avoid duplicate appends
-                        visited[u] = True
+        for start in range(2 * n):
+            if visited[start]:
+                continue
 
-        for i in range(2 * n):
-            if not visited[i]:
-                dfs(i)
+            stack = [(start, False)]
+            while stack:
+                u, expanded = stack.pop()
+                if expanded:
+                    order.append(u)
+                    continue
+                if visited[u]:
+                    continue
+
+                visited[u] = True
+                stack.append((u, True))
+                for w in g[u]:
+                    if not visited[w]:
+                        stack.append((w, False))
 
         comp = [-1] * (2 * n)
 
-        def rdfs(start, c):
-            # Iterative reverse DFS for SCC labeling
+        c = 0
+        for start in reversed(order):
+            if comp[start] != -1:
+                continue
+
             stack = [start]
+            comp[start] = c
             while stack:
                 u = stack.pop()
-                if comp[u] != -1:
-                    continue
-                comp[u] = c
                 for w in gr[u]:
                     if comp[w] == -1:
+                        comp[w] = c
                         stack.append(w)
-
-        c = 0
-        for u in reversed(order):
-            if comp[u] == -1:
-                rdfs(u, c)
-                c += 1
+            c += 1
 
         for i in range(n):
             if comp[2 * i] == comp[2 * i + 1]:
