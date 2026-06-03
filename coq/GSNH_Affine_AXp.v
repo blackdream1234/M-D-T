@@ -1416,3 +1416,143 @@ Proof.
   rewrite HevalAgree in Hblocked.
   exact Hblocked.
 Qed.
+
+
+(* ================================================================ *)
+(* 16. Prop-level selected agreement implies Boolean agreement       *)
+(* ================================================================ *)
+
+Lemma affine_feature_in_bool_true_in :
+  forall (f : Feature) (S : list Feature),
+    affine_feature_in_bool f S = true ->
+    In f S.
+Proof.
+  intros f S.
+  induction S as [| g tl IH]; intros H.
+  - simpl in H.
+    discriminate.
+  - simpl in H.
+    destruct (Nat.eqb f g) eqn:Heq.
+    + left.
+      apply Nat.eqb_eq in Heq.
+      subst f.
+      reflexivity.
+    + right.
+      apply IH.
+      exact H.
+Qed.
+
+Theorem affine_selected_candidate_agreementb_from_prop :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (atoms : list Atom)
+         (rho : Assignment),
+    affine_assignment_respects_atom_eqb rho ->
+    affine_selected_atom_agreement x0 S atoms rho ->
+    affine_selected_candidate_agreementb
+      x0 S atoms
+      (affine_true_atoms_of_assignment rho atoms) = true.
+Proof.
+  intros x0 S atoms rho Hrespect Hagree.
+  unfold affine_selected_candidate_agreementb.
+  apply forallb_forall.
+  intros [f t] Hin.
+  destruct (affine_feature_in_bool f S) eqn:Hfeat.
+  - apply Bool.eqb_true_iff.
+    pose proof
+      (affine_true_atoms_assignment_agrees_on_atoms
+         rho atoms (f,t) Hrespect Hin)
+      as Hcand.
+    rewrite Hcand.
+    symmetry.
+    apply Hagree.
+    + exact Hin.
+    + apply affine_feature_in_bool_true_in.
+      exact Hfeat.
+  - reflexivity.
+Qed.
+
+Theorem affine_path_exhaustive_unsat_check_under_selection_sound_compatible_assignment :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (path : AffinePath)
+         (rho : Assignment),
+    affine_path_exhaustive_unsat_check_under_selection
+      x0 S path = true ->
+    affine_assignment_respects_atom_eqb rho ->
+    affine_selected_atom_agreement
+      x0 S
+      (affine_atoms_of_system (affine_path_equations path))
+      rho ->
+    affine_path_evalb rho path = false.
+Proof.
+  intros x0 S path rho Hcheck Hrespect Hagree.
+  apply
+    (affine_path_exhaustive_unsat_check_under_selection_no_respecting_assignment
+       x0 S path rho Hcheck Hrespect).
+  apply affine_selected_candidate_agreementb_from_prop.
+  - exact Hrespect.
+  - exact Hagree.
+Qed.
+
+Definition affine_path_satisfiable_under_selection_compatible
+           (x0 : Valuation)
+           (S : list Feature)
+           (path : AffinePath) : Prop :=
+  exists rho : Assignment,
+    affine_assignment_respects_atom_eqb rho
+    /\
+    affine_selected_atom_agreement
+      x0 S
+      (affine_atoms_of_system (affine_path_equations path))
+      rho
+    /\
+    affine_path_evalb rho path = true.
+
+Theorem affine_path_exhaustive_unsat_check_under_selection_blocks_compatible_satisfiability :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (path : AffinePath),
+    affine_path_exhaustive_unsat_check_under_selection
+      x0 S path = true ->
+    ~ affine_path_satisfiable_under_selection_compatible x0 S path.
+Proof.
+  intros x0 S path Hcheck Hsat.
+  unfold affine_path_satisfiable_under_selection_compatible in Hsat.
+  destruct Hsat as [rho [Hrespect [Hagree Hpath]]].
+  pose proof
+    (affine_path_exhaustive_unsat_check_under_selection_sound_compatible_assignment
+       x0 S path rho Hcheck Hrespect Hagree)
+    as Hfalse.
+  rewrite Hpath in Hfalse.
+  discriminate.
+Qed.
+
+Definition affine_compatible_opposite_paths_blocked_under_selection
+           (x0 : Valuation)
+           (S : list Feature)
+           (opposite_paths : list AffinePath) : Prop :=
+  forall p : AffinePath,
+    In p opposite_paths ->
+    ~ affine_path_satisfiable_under_selection_compatible x0 S p.
+
+Theorem affine_all_paths_exhaustive_unsat_check_under_selection_blocks_compatible_paths :
+  forall (x0 : Valuation)
+         (S : list Feature)
+         (opposite_paths : list AffinePath),
+    affine_all_paths_exhaustive_unsat_check_under_selection
+      x0 S opposite_paths = true ->
+    affine_compatible_opposite_paths_blocked_under_selection
+      x0 S opposite_paths.
+Proof.
+  intros x0 S opposite_paths Hcheck.
+  unfold affine_compatible_opposite_paths_blocked_under_selection.
+  intros p Hin Hsat.
+  unfold affine_all_paths_exhaustive_unsat_check_under_selection in Hcheck.
+  apply forallb_forall with (x := p) in Hcheck.
+  - apply
+      (affine_path_exhaustive_unsat_check_under_selection_blocks_compatible_satisfiability
+         x0 S p Hcheck).
+    exact Hsat.
+  - exact Hin.
+Qed.
