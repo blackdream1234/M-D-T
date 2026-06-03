@@ -127,3 +127,58 @@ def test_theorem_row_requires_theorem_mode_used_true():
 
     row["theorem_mode_used"] = True
     assert m.LanguageComparisonBenchmark._is_theorem_row(row)
+
+
+def _row(method_label, backend, certificate, theorem_mode_used=True):
+    return {
+        "method_label": method_label,
+        "axp_backend": backend,
+        "theorem_certified": True,
+        "path_certificate": certificate,
+        "theorem_mode_used": theorem_mode_used,
+    }
+
+
+def test_main_certified_methods_use_theorem_mode():
+    m = _load_benchmark_module()
+
+    rows = [
+        _row("1D", "structural_horn", "horn", True),
+        _row("Horn", "structural_horn", "horn", True),
+        _row("AntiHorn", "structural_antihorn", "antihorn", True),
+        _row("Square2CNF", "two_sat", "2cnf", True),
+    ]
+
+    for row in rows:
+        assert m.LanguageComparisonBenchmark._is_theorem_row(row), row
+
+
+def test_safe_backend_rejected_without_theorem_mode():
+    m = _load_benchmark_module()
+
+    rows = [
+        _row("1D", "structural_horn", "horn", False),
+        _row("Horn", "structural_horn", "horn", False),
+        _row("AntiHorn", "structural_antihorn", "antihorn", False),
+        _row("Square2CNF", "two_sat", "2cnf", False),
+    ]
+
+    for row in rows:
+        assert not m.LanguageComparisonBenchmark._is_theorem_row(row), row
+
+
+def test_square2cnf_requires_two_sat_2cnf_theorem_mode():
+    m = _load_benchmark_module()
+
+    assert m.LanguageComparisonBenchmark._is_theorem_row(
+        _row("Square2CNF", "two_sat", "2cnf", True)
+    )
+    assert not m.LanguageComparisonBenchmark._is_theorem_row(
+        _row("Square2CNF", "two_sat", "2cnf", False)
+    )
+    assert not m.LanguageComparisonBenchmark._is_theorem_row(
+        _row("Square2CNF", "structural_horn", "2cnf", True)
+    )
+    assert not m.LanguageComparisonBenchmark._is_theorem_row(
+        _row("Square2CNF", "two_sat", "horn", True)
+    )

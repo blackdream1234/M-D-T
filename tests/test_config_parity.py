@@ -13,10 +13,14 @@ import json
 import numpy as np
 import pytest
 
-RS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+from data_path import DATA_DIR, HAS_DL8_DATA, RS_ROOT
+
 sys.path.insert(0, RS_ROOT)
 
-DATA_DIR = os.path.join(RS_ROOT, 'data')
+pytestmark = pytest.mark.skipif(
+    not HAS_DL8_DATA,
+    reason=f"No .dl8 benchmark data found in {DATA_DIR}",
+)
 
 GOLDEN_PATH = os.path.join(os.path.dirname(__file__), 'golden_methods.json')
 with open(GOLDEN_PATH) as f:

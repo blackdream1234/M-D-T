@@ -45,11 +45,11 @@ from __future__ import annotations
 
 import argparse
 import csv
-import glob
 import json
 import math
 import os
 import sys
+from pathlib import Path
 import time
 import traceback
 import warnings
@@ -153,29 +153,65 @@ def remove_constant_columns(X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     return X[:, valid], valid
 
 
+def resolve_data_dir(cli_data_dir: Optional[str] = None) -> Path:
+    """Resolve benchmark data directory by CLI, env, then repo-local data/."""
+    candidates: List[Path] = []
+    if cli_data_dir:
+        candidates.append(Path(cli_data_dir))
+    if os.environ.get("GSNH_MDT_DATA_DIR"):
+        candidates.append(Path(os.environ["GSNH_MDT_DATA_DIR"]))
+    if os.environ.get("DATA_DIR"):
+        candidates.append(Path(os.environ["DATA_DIR"]))
+
+    repo_root = Path(__file__).resolve().parents[1]
+    candidates.append(repo_root / "data")
+
+    for candidate in candidates:
+        resolved = candidate.expanduser().resolve()
+        if resolved.exists() and resolved.is_dir():
+            return resolved
+
+    return candidates[-1].expanduser().resolve()
+
+
+def discover_dl8_files(data_dir: os.PathLike[str] | str) -> List[Path]:
+    """Discover .dl8 files recursively and report visible files if none exist."""
+    data_path = Path(data_dir).expanduser().resolve()
+    files = sorted(data_path.rglob("*.dl8"))
+    if not files:
+        visible: List[str] = []
+        if data_path.exists():
+            visible = sorted(
+                str(path.relative_to(data_path))
+                for path in data_path.rglob("*")
+                if path.is_file()
+            )[:50]
+        raise FileNotFoundError(
+            f"No .dl8 files found recursively under {data_path}. "
+            f"First files visible under data dir: {visible}"
+        )
+    return files
+
+
 def load_all_dl8(
-    data_dir: str,
+    data_dir: os.PathLike[str] | str,
     max_datasets: Optional[int] = None,
     dataset_filter: Optional[Sequence[str]] = None,
 ) -> "OrderedDict[str, Dict[str, Any]]":
-    """Load all .dl8 files from data_dir."""
-    dl8_files = sorted(glob.glob(os.path.join(data_dir, "*.dl8")))
+    """Load all .dl8 files recursively from data_dir."""
+    dl8_files = discover_dl8_files(data_dir)
     if dataset_filter:
         wanted = set(dataset_filter)
-        dl8_files = [p for p in dl8_files if os.path.basename(p).replace(".dl8", "") in wanted]
+        dl8_files = [p for p in dl8_files if p.stem in wanted]
 
     if max_datasets is not None:
         dl8_files = dl8_files[:max_datasets]
 
-    if not dl8_files:
-        print(f"  No .dl8 files found in {os.path.abspath(data_dir)}")
-        return OrderedDict()
-
     datasets: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
     for filepath in dl8_files:
-        name = os.path.basename(filepath).replace(".dl8", "")
+        name = filepath.stem
         try:
-            X, y_raw = parse_dl8(filepath)
+            X, y_raw = parse_dl8(str(filepath))
             n_unary_original = X.shape[1]
             y = binarize_labels(y_raw)
 
@@ -228,6 +264,9 @@ class MethodConfig:
     category: str
     description: str
     enabled_by_default: bool = True
+
+
+THEOREM_MODE_METHODS = {"1D", "Horn", "AntiHorn", "Square2CNF"}
 
 
 def default_method_configs(include_square2cnf: bool = True) -> List[MethodConfig]:
@@ -629,6 +668,8 @@ class LanguageComparisonBenchmark:
         ):
             if hasattr(tree, attr):
                 meta = getattr(tree, attr)
+                if isinstance(meta, list) and not meta:
+                    continue
                 if meta is not None:
                     return LanguageComparisonBenchmark._metadata_from_obj(meta)
 
@@ -651,7 +692,7 @@ class LanguageComparisonBenchmark:
             # Conservative default for old trees without explicit metadata.
             # Empirical methods stay non-certified unless the explainer records
             # a certificate.
-            if method.label == "Horn":
+            if method.label in {"1D", "Horn"}:
                 return {
                     "axp_backend": "structural_horn",
                     "theorem_certified": True,
@@ -868,9 +909,7 @@ class LanguageComparisonBenchmark:
                         # BestPN remains empirical by default. Add a separate
                         # BestPN-Certified method if you want to benchmark the
                         # path-certificate-restricted variant.
-                        theorem_strict_run = method.label in {
-                            "1D", "Horn", "AntiHorn", "Square2CNF"
-                        }
+                        theorem_mode_used = method.label in THEOREM_MODE_METHODS
 
                         tree = ET(
                             stopping_criteria=SC(
@@ -885,7 +924,7 @@ class LanguageComparisonBenchmark:
                             search_3d=method_search_3d,
                             mode=method.mode,
                             language=lang_family,
-                            theorem_strict=theorem_strict_run,
+                            theorem_strict=theorem_mode_used,
                             random_state=self.rs + run_idx,
                         )
                         tree.fit(X_tr, y_tr)
@@ -915,6 +954,10 @@ class LanguageComparisonBenchmark:
                             metrics[key]["errors"].append(f"run {run_idx}: {warning}")
 
                         theorem_meta = self._extract_tree_theorem_metadata(tree, method)
+                        # The benchmark method decides whether theorem-strict mode
+                        # was intentionally used.  Do not rely on optional AXp
+                        # metadata defaults, which may omit this flag.
+                        theorem_meta["theorem_mode_used"] = bool(theorem_mode_used)
 
                         metrics[key]["acc"].append(acc)
                         metrics[key]["size"].append(size)
@@ -1391,12 +1434,8 @@ class LanguageComparisonBenchmark:
 # =============================================================================
 
 def find_data_dir(explicit: Optional[str]) -> Optional[str]:
-    if explicit:
-        return explicit if os.path.isdir(explicit) else None
-    for d in ["data", "./data", "../data"]:
-        if os.path.isdir(d) and glob.glob(os.path.join(d, "*.dl8")):
-            return d
-    return None
+    """Backward-compatible wrapper for resolved data directory."""
+    return str(resolve_data_dir(explicit))
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -1452,12 +1491,16 @@ def main(argv: Optional[Sequence[str]] = None):
     print("\n[1] Importing GSNH...")
     gsnh = import_gsnh()
 
-    data_dir = find_data_dir(args.data_dir)
-    if data_dir is None:
-        print("✗ No data directory with .dl8 files found.")
+    data_dir = resolve_data_dir(args.data_dir)
+    print()
+    print(f"[2] Resolved data directory: {data_dir}")
+    try:
+        discovered_files = discover_dl8_files(data_dir)
+    except FileNotFoundError as exc:
+        print(f"✗ {exc}")
         return None
-
-    print(f"\n[2] Loading .dl8 files from {data_dir}/...")
+    print(f"[2] Discovered {len(discovered_files)} .dl8 files recursively")
+    print(f"[2] Loading .dl8 files from {data_dir}/...")
     datasets = load_all_dl8(
         data_dir,
         max_datasets=args.max_datasets,

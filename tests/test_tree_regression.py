@@ -11,16 +11,21 @@ import json
 import numpy as np
 import pytest
 
-# Make RS root importable (for monolith and data access)
-RS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+from data_path import DATA_DIR, HAS_DL8_DATA, RS_ROOT
+
+# Make repo root importable (for monolith and data access)
 sys.path.insert(0, RS_ROOT)
+
+pytestmark = pytest.mark.skipif(
+    not HAS_DL8_DATA,
+    reason=f"No .dl8 benchmark data found in {DATA_DIR}",
+)
 
 # Load golden baselines
 GOLDEN_PATH = os.path.join(os.path.dirname(__file__), 'golden_baselines.json')
 with open(GOLDEN_PATH) as f:
     GOLDEN = json.load(f)
 
-DATA_DIR = os.path.join(RS_ROOT, 'data')
 
 
 def parse_dl8(filepath):

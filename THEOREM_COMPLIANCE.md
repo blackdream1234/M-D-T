@@ -44,3 +44,7 @@ The Coq development proves the following formal properties:
 - Unrestricted mixed-family SAT across heterogeneous nodes is **not** claimed to be in P.
 - Training search optimality (the greedy split selection) is heuristic and not formally verified.
 - Candidate caps in the Square2CNF search phase are empirical heuristics.
+
+## 8. theorem_strict Usage Warning
+
+`theorem_strict` must be configured intentionally during evaluation/training. Do not manually toggle `theorem_strict=True` after training an empirical or `BEST_PER_NODE` tree unless all checked paths are certified. Otherwise, `NonTheoremPathError` is the expected behavior.
