@@ -1905,3 +1905,138 @@ Proof.
   destruct (gf2_equation_evalb rho e);
     reflexivity.
 Qed.
+(* ================================================================ *)
+(* 19. GF(2) duplicate cancellation and empty-row facts              *)
+(* ================================================================ *)
+
+(* In GF(2), duplicated variables cancel:
+       x xor x = 0
+
+   This section proves the semantic facts needed before implementing
+   row normalization / Gaussian elimination.
+*)
+
+Lemma xorb_same_cancel_left :
+  forall b c : bool,
+    xorb b (xorb b c) = c.
+Proof.
+  intros b c.
+  destruct b, c; reflexivity.
+Qed.
+
+Lemma gf2_lhs_evalb_cancel_identical_adjacent :
+  forall (rho : Assignment) (a : Atom) (rest : list Atom),
+    gf2_lhs_evalb rho (a :: a :: rest)
+    =
+    gf2_lhs_evalb rho rest.
+Proof.
+  intros rho a rest.
+  unfold gf2_lhs_evalb.
+  simpl.
+  rewrite xorb_same_cancel_left.
+  reflexivity.
+Qed.
+
+Theorem gf2_equation_cancel_identical_adjacent :
+  forall (rho : Assignment)
+         (a : Atom)
+         (rest : list Atom)
+         (rhs : bool),
+    gf2_equation_evalb
+      rho
+      {| gf2_terms := a :: a :: rest;
+         gf2_rhs := rhs |}
+    =
+    gf2_equation_evalb
+      rho
+      {| gf2_terms := rest;
+         gf2_rhs := rhs |}.
+Proof.
+  intros rho a rest rhs.
+  unfold gf2_equation_evalb.
+  simpl.
+  rewrite gf2_lhs_evalb_cancel_identical_adjacent.
+  reflexivity.
+Qed.
+
+Theorem gf2_equation_cancel_eqb_adjacent :
+  forall (rho : Assignment)
+         (a b : Atom)
+         (rest : list Atom)
+         (rhs : bool),
+    affine_assignment_respects_atom_eqb rho ->
+    affine_atom_eqb a b = true ->
+    gf2_equation_evalb
+      rho
+      {| gf2_terms := a :: b :: rest;
+         gf2_rhs := rhs |}
+    =
+    gf2_equation_evalb
+      rho
+      {| gf2_terms := rest;
+         gf2_rhs := rhs |}.
+Proof.
+  intros rho a b rest rhs Hrespect Hab.
+  unfold gf2_equation_evalb.
+  unfold gf2_lhs_evalb.
+  simpl.
+  rewrite (Hrespect a b Hab).
+  rewrite xorb_same_cancel_left.
+  reflexivity.
+Qed.
+
+Lemma gf2_lhs_evalb_empty :
+  forall rho : Assignment,
+    gf2_lhs_evalb rho [] = false.
+Proof.
+  intros rho.
+  reflexivity.
+Qed.
+
+Theorem gf2_empty_false_equation_true :
+  forall rho : Assignment,
+    gf2_equation_evalb
+      rho
+      {| gf2_terms := [];
+         gf2_rhs := false |}
+    = true.
+Proof.
+  intros rho.
+  reflexivity.
+Qed.
+
+Theorem gf2_empty_true_equation_false :
+  forall rho : Assignment,
+    gf2_equation_evalb
+      rho
+      {| gf2_terms := [];
+         gf2_rhs := true |}
+    = false.
+Proof.
+  intros rho.
+  reflexivity.
+Qed.
+
+Definition gf2_empty_contradiction
+           (e : GF2Equation) : bool :=
+  match e.(gf2_terms), e.(gf2_rhs) with
+  | [], true => true
+  | _, _ => false
+  end.
+
+Theorem gf2_empty_contradiction_unsat :
+  forall (rho : Assignment) (e : GF2Equation),
+    gf2_empty_contradiction e = true ->
+    gf2_equation_evalb rho e = false.
+Proof.
+  intros rho [terms rhs] Hcontra.
+  unfold gf2_empty_contradiction in Hcontra.
+  destruct terms as [| a tl].
+  - destruct rhs.
+    + simpl.
+      reflexivity.
+    + simpl in Hcontra.
+      discriminate.
+  - simpl in Hcontra.
+    discriminate.
+Qed.
