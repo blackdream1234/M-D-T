@@ -1556,3 +1556,205 @@ Proof.
     exact Hsat.
   - exact Hin.
 Qed.
+
+(* ================================================================ *)
+(* 17. GF(2) normalization of affine equations                       *)
+(* ================================================================ *)
+
+(* A signed affine equation may contain positive atoms B and negative
+   atoms not B. A GF(2) linear solver should operate on raw positive
+   Boolean atoms only.
+
+   Boolean identity:
+       negb x = x xor true
+
+   Therefore each negative signed atom flips the right-hand side.
+*)
+
+Record GF2Equation := {
+  gf2_terms : list Atom;
+  gf2_rhs   : bool
+}.
+
+Definition gf2_lhs_evalb
+           (rho : Assignment)
+           (terms : list Atom) : bool :=
+  xor_list (map rho terms).
+
+Definition gf2_equation_evalb
+           (rho : Assignment)
+           (e : GF2Equation) : bool :=
+  Bool.eqb (gf2_lhs_evalb rho e.(gf2_terms)) e.(gf2_rhs).
+
+Fixpoint gf2_normalize_terms
+         (terms : list SignedAtom) : list Atom * bool :=
+  match terms with
+  | [] => ([], false)
+  | sa :: tl =>
+      let '(vars, flip) := gf2_normalize_terms tl in
+      (sa.(sa_atom) :: vars,
+       if sa.(sa_positive) then flip else negb flip)
+  end.
+
+Definition gf2_of_affine_equation
+           (e : AffineEquation) : GF2Equation :=
+  let '(vars, flip) := gf2_normalize_terms e.(ae_terms) in
+  {|
+    gf2_terms := vars;
+    gf2_rhs   := xorb e.(ae_rhs) flip
+  |}.
+
+Lemma gf2_normalize_terms_correct_pair :
+  forall (rho : Assignment)
+         (terms : list SignedAtom)
+         (vars : list Atom)
+         (flip : bool),
+    gf2_normalize_terms terms = (vars, flip) ->
+    affine_lhs_evalb rho terms =
+    xorb (gf2_lhs_evalb rho vars) flip.
+Proof.
+  intros rho terms.
+  induction terms as [| sa tl IH]; intros vars flip Hnf.
+  - simpl in Hnf.
+    inversion Hnf.
+    subst.
+    reflexivity.
+  - destruct sa as [a pos].
+    simpl in Hnf.
+    destruct (gf2_normalize_terms tl) as [vars_t flip_t] eqn:Ht.
+    inversion Hnf.
+    subst vars flip.
+    clear Hnf.
+
+    specialize (IH vars_t flip_t eq_refl).
+
+    unfold affine_lhs_evalb in *.
+    unfold gf2_lhs_evalb in *.
+    simpl in *.
+    unfold signed_evalb in *.
+    simpl in *.
+
+    rewrite IH.
+
+    destruct pos;
+      destruct (rho a);
+      destruct (xor_list (map rho vars_t));
+      destruct flip_t;
+      reflexivity.
+Qed.
+
+Lemma gf2_normalize_terms_correct :
+  forall (rho : Assignment) (terms : list SignedAtom),
+    let nf := gf2_normalize_terms terms in
+    affine_lhs_evalb rho terms =
+    xorb (gf2_lhs_evalb rho (fst nf)) (snd nf).
+Proof.
+  intros rho terms.
+  destruct (gf2_normalize_terms terms) as [vars flip] eqn:Hnf.
+  simpl.
+  eapply gf2_normalize_terms_correct_pair.
+  exact Hnf.
+Qed.
+
+Lemma gf2_of_affine_equation_correct_pair :
+  forall (rho : Assignment)
+         (terms : list SignedAtom)
+         (rhs : bool)
+         (vars : list Atom)
+         (flip : bool),
+    gf2_normalize_terms terms = (vars, flip) ->
+    gf2_equation_evalb
+      rho
+      {| gf2_terms := vars;
+         gf2_rhs := xorb rhs flip |}
+    =
+    affine_equation_evalb
+      rho
+      {| ae_terms := terms;
+         ae_rhs := rhs |}.
+Proof.
+  intros rho terms rhs vars flip Hnf.
+  unfold gf2_equation_evalb.
+  unfold affine_equation_evalb.
+  simpl.
+
+  assert
+    (Hnorm :
+       affine_lhs_evalb rho terms =
+       xorb (gf2_lhs_evalb rho vars) flip).
+  {
+    eapply gf2_normalize_terms_correct_pair.
+    exact Hnf.
+  }
+
+  rewrite Hnorm.
+
+  destruct (gf2_lhs_evalb rho vars);
+    destruct rhs;
+    destruct flip;
+    reflexivity.
+Qed.
+
+Theorem gf2_of_affine_equation_correct :
+  forall (rho : Assignment) (e : AffineEquation),
+    gf2_equation_evalb rho (gf2_of_affine_equation e)
+    =
+    affine_equation_evalb rho e.
+Proof.
+  intros rho [terms rhs].
+  unfold gf2_of_affine_equation.
+  cbn.
+  destruct (gf2_normalize_terms terms) as [vars flip] eqn:Hnf.
+  cbn.
+  exact
+    (gf2_of_affine_equation_correct_pair
+       rho terms rhs vars flip Hnf).
+Qed.
+
+Definition gf2_system_evalb
+           (rho : Assignment)
+           (eqs : list GF2Equation) : bool :=
+  forallb (gf2_equation_evalb rho) eqs.
+
+Definition gf2_of_affine_system
+           (eqs : list AffineEquation) : list GF2Equation :=
+  map gf2_of_affine_equation eqs.
+
+Theorem gf2_of_affine_system_correct :
+  forall (rho : Assignment) (eqs : list AffineEquation),
+    gf2_system_evalb rho (gf2_of_affine_system eqs)
+    =
+    affine_system_evalb rho eqs.
+Proof.
+  intros rho eqs.
+  induction eqs as [| e tl IH].
+  - reflexivity.
+  - unfold gf2_of_affine_system.
+    simpl.
+    unfold gf2_system_evalb.
+    simpl.
+    rewrite gf2_of_affine_equation_correct.
+    unfold affine_system_evalb.
+    simpl.
+    fold (affine_system_evalb rho tl).
+    fold (gf2_of_affine_system tl).
+    fold (gf2_system_evalb rho (gf2_of_affine_system tl)).
+    rewrite IH.
+    reflexivity.
+Qed.
+
+Definition gf2_of_affine_path
+           (path : AffinePath) : list GF2Equation :=
+  gf2_of_affine_system (affine_path_equations path).
+
+Theorem gf2_of_affine_path_correct :
+  forall (rho : Assignment) (path : AffinePath),
+    gf2_system_evalb rho (gf2_of_affine_path path)
+    =
+    affine_path_evalb rho path.
+Proof.
+  intros rho path.
+  unfold gf2_of_affine_path.
+  rewrite gf2_of_affine_system_correct.
+  apply affine_path_encoding_correct.
+Qed.
