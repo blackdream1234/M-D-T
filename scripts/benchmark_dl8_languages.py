@@ -19,10 +19,11 @@ Usage:
     python benchmark_dl8_languages.py
 """
 
+import argparse
 import numpy as np
 import os
 import sys
-import glob
+from pathlib import Path
 import time
 import traceback
 import warnings
@@ -67,6 +68,50 @@ def import_gsnh():
 
 
 # =============================================================================
+# DATA DISCOVERY
+# =============================================================================
+
+def resolve_data_dir(cli_data_dir=None):
+    """Resolve benchmark data directory by CLI, env, then repo-local data/."""
+    candidates = []
+    if cli_data_dir:
+        candidates.append(Path(cli_data_dir))
+    if os.environ.get('GSNH_MDT_DATA_DIR'):
+        candidates.append(Path(os.environ['GSNH_MDT_DATA_DIR']))
+    if os.environ.get('DATA_DIR'):
+        candidates.append(Path(os.environ['DATA_DIR']))
+
+    repo_root = Path(__file__).resolve().parents[1]
+    candidates.append(repo_root / 'data')
+
+    for candidate in candidates:
+        resolved = candidate.expanduser().resolve()
+        if resolved.exists() and resolved.is_dir():
+            return resolved
+
+    return candidates[-1].expanduser().resolve()
+
+
+def discover_dl8_files(data_dir):
+    """Discover .dl8 files recursively and report visible files if none exist."""
+    data_path = Path(data_dir).expanduser().resolve()
+    files = sorted(data_path.rglob('*.dl8'))
+    if not files:
+        visible = []
+        if data_path.exists():
+            visible = sorted(
+                str(path.relative_to(data_path))
+                for path in data_path.rglob('*')
+                if path.is_file()
+            )[:50]
+        raise FileNotFoundError(
+            f"No .dl8 files found recursively under {data_path}. "
+            f"First files visible under data dir: {visible}"
+        )
+    return files
+
+
+# =============================================================================
 # .DL8 PARSER
 # =============================================================================
 
@@ -91,19 +136,15 @@ def parse_dl8(filepath):
 
 
 def load_all_dl8(data_dir='data', max_binary_features=None):
-    """Load all .dl8 files."""
-    dl8_files = sorted(glob.glob(os.path.join(data_dir, '*.dl8')))
-
-    if not dl8_files:
-        print(f"  No .dl8 files in {os.path.abspath(data_dir)}/")
-        return OrderedDict()
+    """Load all .dl8 files recursively."""
+    dl8_files = discover_dl8_files(data_dir)
 
     datasets = OrderedDict()
 
     for filepath in dl8_files:
-        name = os.path.basename(filepath).replace('.dl8', '')
+        name = filepath.stem
         try:
-            X, y = parse_dl8(filepath)
+            X, y = parse_dl8(str(filepath))
             n_unary = X.shape[1]
 
             # Make labels binary
@@ -767,7 +808,11 @@ class LanguageComparisonBenchmark:
 # MAIN
 # =============================================================================
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Benchmark GSNH-MDT on .dl8 datasets.")
+    parser.add_argument("--data-dir", default=None, help="Directory containing .dl8 files.")
+    args, _ = parser.parse_known_args(argv)
+
     print("\n" + "#" * 80)
     print("#   Language Family Comparison — Depth 5 & 7 — Professor's .dl8 Data   #")
     print("#" * 80)
@@ -787,18 +832,17 @@ def main():
     gsnh = import_gsnh()
 
     # Find data
-    data_dir = None
-    for d in ['data', './data', '../data']:
-        if os.path.isdir(d) and glob.glob(os.path.join(d, '*.dl8')):
-            data_dir = d
-            break
-
-    if data_dir is None:
-        print("✗ No data/ directory with .dl8 files found!")
+    data_dir = resolve_data_dir(args.data_dir)
+    print(f"\n[2] Resolved data directory: {data_dir}")
+    try:
+        discovered_files = discover_dl8_files(data_dir)
+    except FileNotFoundError as exc:
+        print(f"✗ {exc}")
         return None
+    print(f"[2] Discovered {len(discovered_files)} .dl8 files recursively")
 
     # Load
-    print(f"\n[2] Loading .dl8 files from {data_dir}/...")
+    print(f"[2] Loading .dl8 files from {data_dir}/...")
     datasets = load_all_dl8(data_dir)
 
     if not datasets:
