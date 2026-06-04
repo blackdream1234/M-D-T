@@ -66,32 +66,3 @@ The Coq development proves the following formal properties:
 ## 9. theorem_strict Usage Warning
 
 `theorem_strict` must be configured intentionally during evaluation/training. Do not manually toggle `theorem_strict=True` after training an empirical or `BEST_PER_NODE` tree unless all checked paths are certified. Otherwise, `NonTheoremPathError` is the expected behavior.
-
-## Affine Coq proof progress
-
-Affine/XOR predicates are tractable over Boolean domains because they correspond to linear equations over GF(2). The file `coq/GSNH_Affine_AXp.v` now formalizes a separate Affine proof layer over Boolean threshold atoms.
-
-Current Affine Coq coverage:
-
-- affine equation semantics over signed Boolean threshold atoms;
-- false-branch encoding by flipping the right-hand side;
-- affine path encoding correctness;
-- affine weak-AXp encoding reflection;
-- finite exhaustive affine reference checker;
-- solver soundness and candidate-level completeness for the exhaustive checker;
-- path-level and all-opposite-path UNSAT soundness;
-- selected-feature constrained UNSAT soundness;
-- finite assignment representation for affine atoms;
-- assignment-agreement preservation;
-- completeness bridge from equality-compatible assignments to finite candidates;
-- compatible-assignment AXp blocking.
-
-Affine is still not included in the theorem-certified benchmark table because the current development does not yet include:
-
-- a verified polynomial GF(2) Gaussian-elimination solver;
-- integration with structural threshold-order clauses;
-- numeric AXp equivalence for Affine;
-- subset-minimal extraction theorem specialized to Affine;
-- Python theorem-metadata admission for an `affine` certificate.
-
-Therefore, Affine remains reported as an auxiliary family in the current benchmark, although its Boolean tractability is theoretically supported.

@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from data_path import DATA_DIR, HAS_DL8_DATA, RS_ROOT
+from golden_utils import find_dataset_file, load_golden
 
 sys.path.insert(0, RS_ROOT)
 
@@ -23,8 +24,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 GOLDEN_PATH = os.path.join(os.path.dirname(__file__), 'golden_methods.json')
-with open(GOLDEN_PATH) as f:
-    GOLDEN = json.load(f)
+GOLDEN = load_golden(GOLDEN_PATH)
+# These goldens correspond to deterministic post-theorem-boundary behavior.
 
 ALL_DATASETS = list(GOLDEN.keys())
 
@@ -35,7 +36,7 @@ def parse_dl8(filepath):
 
 
 def prepare_data(name, g):
-    X, y = parse_dl8(os.path.join(DATA_DIR, f'{name}.dl8'))
+    X, y = parse_dl8(find_dataset_file(name))
     np.random.seed(g['seed'])
     n = len(y)
     idx = np.random.permutation(n)

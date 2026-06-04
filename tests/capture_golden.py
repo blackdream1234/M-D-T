@@ -11,6 +11,7 @@ import json
 import numpy as np
 
 from data_path import DATA_DIR, RS_ROOT
+from golden_utils import find_dataset_file
 
 # Add repo root so we can import the package/monolith
 sys.path.insert(0, RS_ROOT)
@@ -132,12 +133,14 @@ def capture_reproducibility(X, y, seed=42):
 
 def main():
     datasets = {
-        'lymph': os.path.join(DATA_DIR, 'lymph.dl8'),
-        'hepatitis': os.path.join(DATA_DIR, 'hepatitis.dl8'),
-        'vote': os.path.join(DATA_DIR, 'vote.dl8'),
+        'lymph': find_dataset_file('lymph'),
+        'hepatitis': find_dataset_file('hepatitis'),
+        'vote': find_dataset_file('vote'),
     }
 
-    golden = {}
+    golden = {
+        "_comment": "Post-theorem-boundary deterministic golden baselines."
+    }
     for name, full_path in datasets.items():
         if not os.path.exists(full_path):
             print(f"  SKIP {name}: file not found at {full_path}")

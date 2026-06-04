@@ -11,6 +11,7 @@ import json
 import numpy as np
 
 from data_path import DATA_DIR, RS_ROOT
+from golden_utils import find_dataset_file
 
 sys.path.insert(0, RS_ROOT)
 from gsnh_mdt.tree.builder import ExpertGSNHTree
@@ -24,7 +25,7 @@ def parse_dl8(filepath):
 
 
 def train_tree(name, seed=42, max_depth=7):
-    X, y = parse_dl8(os.path.join(DATA_DIR, f'{name}.dl8'))
+    X, y = parse_dl8(find_dataset_file(name))
     np.random.seed(seed)
     n = len(y)
     idx = np.random.permutation(n)
@@ -110,9 +111,11 @@ def capture_method_goldens(name, seed=42, max_depth=7):
 
 def main():
     datasets = ['vote', 'hepatitis', 'lymph', 'ionosphere', 'kr-vs-kp']
-    golden = {}
+    golden = {
+        "_comment": "Post-theorem-boundary deterministic golden baselines."
+    }
     for name in datasets:
-        path = os.path.join(DATA_DIR, f'{name}.dl8')
+        path = find_dataset_file(name)
         if not os.path.exists(path):
             print(f"  SKIP {name}")
             continue
