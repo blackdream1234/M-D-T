@@ -118,30 +118,41 @@ class ExactSATSolver:
         visited = [False] * (2 * n)
         order = []
 
-        def dfs(u):
-            visited[u] = True
-            for w in g[u]:
-                if not visited[w]:
-                    dfs(w)
-            order.append(u)
+        for start in range(2 * n):
+            if visited[start]:
+                continue
 
-        for i in range(2 * n):
-            if not visited[i]:
-                dfs(i)
+            stack = [(start, False)]
+            while stack:
+                u, expanded = stack.pop()
+                if expanded:
+                    order.append(u)
+                    continue
+                if visited[u]:
+                    continue
+
+                visited[u] = True
+                stack.append((u, True))
+                for w in g[u]:
+                    if not visited[w]:
+                        stack.append((w, False))
 
         comp = [-1] * (2 * n)
 
-        def rdfs(u, c):
-            comp[u] = c
-            for w in gr[u]:
-                if comp[w] == -1:
-                    rdfs(w, c)
-
         c = 0
-        for u in reversed(order):
-            if comp[u] == -1:
-                rdfs(u, c)
-                c += 1
+        for start in reversed(order):
+            if comp[start] != -1:
+                continue
+
+            stack = [start]
+            comp[start] = c
+            while stack:
+                u = stack.pop()
+                for w in gr[u]:
+                    if comp[w] == -1:
+                        comp[w] = c
+                        stack.append(w)
+            c += 1
 
         for i in range(n):
             if comp[2 * i] == comp[2 * i + 1]:

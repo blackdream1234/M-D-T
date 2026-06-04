@@ -13,7 +13,8 @@ import os
 import json
 import numpy as np
 
-RS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+from data_path import DATA_DIR, RS_ROOT
+
 sys.path.insert(0, RS_ROOT)
 from gsnh_mdt.tree.builder import ExpertGSNHTree
 from gsnh_mdt.tree.stopping import StoppingCriteria
@@ -121,16 +122,16 @@ def capture_expanded(name, X, y, seed=42, max_depth=7):
 def main():
     datasets = {
         # Original 3:
-        'lymph': os.path.join(RS_ROOT, 'data', 'lymph.dl8'),
-        'hepatitis': os.path.join(RS_ROOT, 'data', 'hepatitis.dl8'),
-        'vote': os.path.join(RS_ROOT, 'data', 'vote.dl8'),
+        'lymph': os.path.join(DATA_DIR, 'lymph.dl8'),
+        'hepatitis': os.path.join(DATA_DIR, 'hepatitis.dl8'),
+        'vote': os.path.join(DATA_DIR, 'vote.dl8'),
         # Expanded 6:
-        'tic-tac-toe': os.path.join(RS_ROOT, 'data', 'tic-tac-toe.dl8'),
-        'ionosphere': os.path.join(RS_ROOT, 'data', 'ionosphere.dl8'),
-        'kr-vs-kp': os.path.join(RS_ROOT, 'data', 'kr-vs-kp.dl8'),
-        'mushroom': os.path.join(RS_ROOT, 'data', 'mushroom.dl8'),
-        'anneal': os.path.join(RS_ROOT, 'data', 'anneal.dl8'),
-        'heart-cleveland': os.path.join(RS_ROOT, 'data', 'heart-cleveland.dl8'),
+        'tic-tac-toe': os.path.join(DATA_DIR, 'tic-tac-toe.dl8'),
+        'ionosphere': os.path.join(DATA_DIR, 'ionosphere.dl8'),
+        'kr-vs-kp': os.path.join(DATA_DIR, 'kr-vs-kp.dl8'),
+        'mushroom': os.path.join(DATA_DIR, 'mushroom.dl8'),
+        'anneal': os.path.join(DATA_DIR, 'anneal.dl8'),
+        'heart-cleveland': os.path.join(DATA_DIR, 'heart-cleveland.dl8'),
     }
 
     golden = {}

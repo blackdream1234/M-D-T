@@ -13,8 +13,7 @@ import os
 import numpy as np
 import pytest
 
-RS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
-DATA_DIR = os.path.join(RS_ROOT, 'data')
+from data_path import DATA_DIR
 
 
 def parse_dl8(filepath):
