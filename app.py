@@ -1191,7 +1191,7 @@ with st.sidebar:
 
     # Dataset Selection with animation
     st.markdown('<div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; color: #64748b; margin-bottom: 8px; font-weight: 600;">📂 Dataset</div>', unsafe_allow_html=True)
-    dataset_name = st.selectbox("", list(AVAILABLE.keys()),
+    dataset_name = st.selectbox("Dataset", list(AVAILABLE.keys()),
         index=list(AVAILABLE.keys()).index("Tic-Tac-Toe") if "Tic-Tac-Toe" in AVAILABLE else 0,
         label_visibility="collapsed")
     fn = AVAILABLE[dataset_name]
@@ -1234,7 +1234,7 @@ with st.sidebar:
         default = lang in ("Horn", "Square CNF", "BEST_PER_NODE")
         col = st.columns([0.15, 0.85])
         with col[0]:
-            checked = st.checkbox("", value=default, key=f"cb_{lang}", label_visibility="collapsed")
+            checked = st.checkbox(f"Enable {lang}", value=default, key=f"cb_{lang}", label_visibility="collapsed")
         with col[1]:
             color = LANG_COLORS.get(lang, "#fff")
             st.markdown(f'<div style="display: flex; align-items: center; gap: 8px; margin-top: -6px;"><div style="width: 8px; height: 8px; border-radius: 50%; background: {color}; box-shadow: 0 0 8px {color};"></div><span style="font-size: 0.85rem; font-weight: 500; color: #e2e8f0;">{lang}</span><span style="font-size: 0.7rem; color: #64748b; margin-left: auto; font-family: JetBrains Mono;">[{COMPLEXITY_TAG[lang]}]</span></div>', unsafe_allow_html=True)
@@ -1253,24 +1253,24 @@ with st.sidebar:
     st.markdown('<div class="section-header" style="margin: 0 0 16px 0; padding: 12px 16px;"><span>⚙️ Parameters</span></div>', unsafe_allow_html=True)
     
     st.markdown('<div style="font-size: 0.7rem; color: #64748b; margin-bottom: 4px; font-weight: 600;">MAX DEPTH</div>', unsafe_allow_html=True)
-    max_depth = st.slider("", 2, 15, 5, key="depth_slider", label_visibility="collapsed")
+    max_depth = st.slider("Max Depth", 2, 15, 5, key="depth_slider", label_visibility="collapsed")
     st.markdown(f'<div style="text-align: right; font-size: 0.8rem; color: #00d4ff; font-family: Space Grotesk; font-weight: 700; margin-top: -10px;">{max_depth}</div>', unsafe_allow_html=True)
     
     st.markdown('<div style="font-size: 0.7rem; color: #64748b; margin-bottom: 4px; font-weight: 600; margin-top: 16px;">LOOK-AHEAD γ</div>', unsafe_allow_html=True)
-    gamma = st.slider("", 0.0, 1.0, 0.0, step=0.05, key="gamma_slider", label_visibility="collapsed")
+    gamma = st.slider("Look-ahead Gamma", 0.0, 1.0, 0.0, step=0.05, key="gamma_slider", label_visibility="collapsed")
     st.markdown(f'<div style="text-align: right; font-size: 0.8rem; color: #b56bff; font-family: Space Grotesk; font-weight: 700; margin-top: -10px;">{gamma:.2f}</div>', unsafe_allow_html=True)
     
     st.markdown('<div style="font-size: 0.7rem; color: #64748b; margin-bottom: 4px; font-weight: 600; margin-top: 16px;">AXP SAMPLES</div>', unsafe_allow_html=True)
-    n_axp = st.slider("", 5, 100, 30, key="axp_slider", label_visibility="collapsed")
+    n_axp = st.slider("AXP Samples", 5, 100, 30, key="axp_slider", label_visibility="collapsed")
     
     st.markdown('<div style="font-size: 0.7rem; color: #64748b; margin-bottom: 4px; font-weight: 600; margin-top: 16px;">SEED</div>', unsafe_allow_html=True)
-    seed = st.number_input("", 0, 9999, 42, key="seed_input", label_visibility="collapsed")
+    seed = st.number_input("Seed", 0, 9999, 42, key="seed_input", label_visibility="collapsed")
 
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Evaluation Mode
     st.markdown('<div class="section-header" style="margin: 0 0 16px 0; padding: 12px 16px;"><span>📐 Evaluation</span></div>', unsafe_allow_html=True)
-    eval_mode = st.radio("", ["Single split", "K-Fold CV"], index=0, label_visibility="collapsed")
+    eval_mode = st.radio("Evaluation Mode", ["Single split", "K-Fold CV"], index=0, label_visibility="collapsed")
     k_folds = 1; do_wilcoxon = False
     if eval_mode == "K-Fold CV":
         k_folds = st.slider("K", 3, 10, 5)
@@ -1390,10 +1390,12 @@ if not run_btn and not cached_results:
     </div>
     """, unsafe_allow_html=True)
     st.stop()
+    import sys; sys.exit(0)
 
 if run_btn and not sel_langs:
     st.warning("Please select at least one language topology.")
     st.stop()
+    import sys; sys.exit(0)
 
 if viewing_cached:
     cfg = st.session_state.get("active_config", {})
