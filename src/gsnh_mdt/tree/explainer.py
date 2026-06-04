@@ -16,6 +16,7 @@ from typing import Optional, List, Dict, Any
 
 from gsnh_mdt.literals.binary import GSNHBinaryLiteral
 from gsnh_mdt.literals.compare import CompareLiteral
+from gsnh_mdt.literals.base import GSNHLiteral
 from gsnh_mdt.literals.predicates import Square2CNFPredicate
 from gsnh_mdt.sat.exact_solver import ExactSATSolver
 from gsnh_mdt.types import LanguageFamily, LiteralPolarity
@@ -46,6 +47,7 @@ class AXpBackendMetadata:
     theorem_certified: bool = False
     path_certificate: str = "none"
     reason: str = ""
+    theorem_mode_used: bool = False
 
 
 def _enumerate_paths(tree):
@@ -166,6 +168,7 @@ def _is_sat_path(tree, path_edges, x, S):
     """
     theorem_strict = getattr(tree, 'theorem_strict', False)
     metadata = AXpBackendMetadata()
+    metadata.theorem_mode_used = bool(theorem_strict)
 
     if not path_edges:
         metadata.axp_backend = "empty_path"
@@ -174,6 +177,32 @@ def _is_sat_path(tree, path_edges, x, S):
         tree.explainer_backend_ = "empty_path"
         _record_metadata(tree, metadata)
         return True
+
+    has_xor = any(pred.is_xor for pred, _ in path_edges)
+
+    # Affine/GF(2) remains auxiliary in Python theorem metadata until a
+    # verified GF(2) certificate checker is implemented.  In theorem-strict
+    # mode, reject unsupported/non-Boolean threshold structure instead of
+    # silently treating affine_sat as a theorem certificate.
+    if theorem_strict and has_xor:
+        metadata.axp_backend = "affine"
+        metadata.theorem_certified = False
+        metadata.path_certificate = "affine_unverified"
+        guard_error = _affine_theorem_guard_error(tree, path_edges)
+        if guard_error:
+            metadata.reason = guard_error
+            _record_metadata(tree, metadata)
+            raise NonTheoremPathError(guard_error)
+        if not all(pred.is_xor for pred, _ in path_edges):
+            metadata.reason = "Mixed affine paths are not theorem-certified by the Python checker"
+            _record_metadata(tree, metadata)
+            raise NonTheoremPathError(metadata.reason)
+        metadata.reason = (
+            "Affine GF(2) solving is auxiliary in Python until verified "
+            "certificate checking is implemented"
+        )
+        _record_metadata(tree, metadata)
+        return _affine_path_sat(path_edges, x, S)
 
     # Theorem-strict mode: check for unsupported literals
     if theorem_strict:
@@ -321,6 +350,47 @@ def _is_sat_path(tree, path_edges, x, S):
     return True
 
 
+
+def _affine_theorem_guard_error(tree, path_edges) -> str:
+    """Return a rejection reason for affine paths outside Python theorem scope."""
+    thresholds_by_feature = {}
+
+    for pred, _ in path_edges:
+        if not pred.is_xor:
+            continue
+        for lit in pred.literals:
+            if not isinstance(lit, GSNHLiteral):
+                return f"Unsupported affine literal type: {type(lit).__name__}"
+            thresholds_by_feature.setdefault(int(lit.feature), set()).add(float(lit.threshold))
+
+    for feature, thresholds in thresholds_by_feature.items():
+        if len(thresholds) != 1:
+            return (
+                "Affine theorem mode requires one Boolean threshold atom per "
+                f"feature; feature {feature} has {len(thresholds)} thresholds"
+            )
+
+    binner = getattr(tree, "binner_", None)
+    bin_edges = getattr(binner, "bin_edges_", None)
+    if bin_edges is not None:
+        for feature in thresholds_by_feature:
+            try:
+                edges = bin_edges[feature]
+            except (IndexError, KeyError, TypeError):
+                continue
+            if len(edges) > 3:
+                return (
+                    "Affine theorem mode requires Boolean-compatible binned "
+                    f"features; feature {feature} has {len(edges) - 1} bins"
+                )
+    elif getattr(tree, "n_bins", None) is not None and int(getattr(tree, "n_bins")) > 2:
+        return (
+            "Affine theorem mode requires Boolean-compatible domains; "
+            f"tree.n_bins={getattr(tree, 'n_bins')}"
+        )
+
+    return ""
+
 def _record_metadata(tree, metadata: AXpBackendMetadata):
     """Record backend metadata on the tree object."""
     if hasattr(tree, 'axp_metadata_') and isinstance(tree.axp_metadata_, list):
@@ -386,7 +456,9 @@ def _path_sat_numeric(path_edges, x, S):
             clause_lits = []
             for lit in pred.literals:
                 if isinstance(lit, (CompareLiteral, GSNHBinaryLiteral)):
-                    continue
+                    raise NotImplementedError(
+                        f"Unsupported literal {type(lit).__name__} cannot be ignored in path SAT"
+                    )
                 # If it's a False branch, the literal must be negated
                 actual_lit = lit if branch else lit.negate()
                 clause_lits.append(actual_lit)
@@ -401,7 +473,9 @@ def _path_sat_numeric(path_edges, x, S):
         else:
             for lit in pred.literals:
                 if isinstance(lit, (CompareLiteral, GSNHBinaryLiteral)):
-                    continue
+                    raise NotImplementedError(
+                        f"Unsupported literal {type(lit).__name__} cannot be ignored in path SAT"
+                    )
                 # If it's a False branch, the literal must be negated
                 actual_lit = lit if branch else lit.negate()
                 

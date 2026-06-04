@@ -751,7 +751,7 @@ class LanguageComparisonBenchmark:
         cert = _clean_metadata_value(row.get("path_certificate"), "none")
         label = _clean_metadata_value(row.get("method_label"), "")
 
-        forbidden = {"interval_dfs_fallback", "prototype_case_split", "rejected_non_theorem", "none"}
+        forbidden = {"interval_dfs_fallback", "prototype_case_split", "rejected_non_theorem", "affine", "none"}
         if backend in forbidden:
             return False
         if any(x in backend for x in forbidden):
