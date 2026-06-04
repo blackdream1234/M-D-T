@@ -2144,3 +2144,196 @@ Proof.
   simpl.
   reflexivity.
 Qed.
+(* ================================================================ *)
+(* 21. GF(2) system equivalence and contradiction certificates       *)
+(* ================================================================ *)
+
+(* This section packages the GF(2) row-operation facts into a clean
+   certificate-style theorem.
+
+   Instead of proving a full Gaussian-elimination implementation now,
+   we prove the key verification principle:
+
+      original system  ==equiv==  reduced system
+      reduced system contains 0 = 1
+      ------------------------------------------------
+      original system is unsatisfiable
+
+   This is the correct bridge toward a verified Gaussian-elimination
+   backend.
+*)
+
+Definition gf2_system_unsat (sys : list GF2Equation) : Prop :=
+  forall rho : Assignment,
+    gf2_system_evalb rho sys = false.
+
+Definition gf2_system_equiv
+           (sys1 sys2 : list GF2Equation) : Prop :=
+  forall rho : Assignment,
+    gf2_system_evalb rho sys1 =
+    gf2_system_evalb rho sys2.
+
+Theorem gf2_system_equiv_refl :
+  forall sys : list GF2Equation,
+    gf2_system_equiv sys sys.
+Proof.
+  intros sys.
+  unfold gf2_system_equiv.
+  intros rho.
+  reflexivity.
+Qed.
+
+Theorem gf2_system_equiv_sym :
+  forall sys1 sys2 : list GF2Equation,
+    gf2_system_equiv sys1 sys2 ->
+    gf2_system_equiv sys2 sys1.
+Proof.
+  intros sys1 sys2 Heq.
+  unfold gf2_system_equiv in *.
+  intros rho.
+  symmetry.
+  apply Heq.
+Qed.
+
+Theorem gf2_system_equiv_trans :
+  forall sys1 sys2 sys3 : list GF2Equation,
+    gf2_system_equiv sys1 sys2 ->
+    gf2_system_equiv sys2 sys3 ->
+    gf2_system_equiv sys1 sys3.
+Proof.
+  intros sys1 sys2 sys3 H12 H23.
+  unfold gf2_system_equiv in *.
+  intros rho.
+  rewrite H12.
+  apply H23.
+Qed.
+
+Theorem gf2_system_equiv_preserves_unsat :
+  forall sys1 sys2 : list GF2Equation,
+    gf2_system_equiv sys1 sys2 ->
+    gf2_system_unsat sys2 ->
+    gf2_system_unsat sys1.
+Proof.
+  intros sys1 sys2 Heq Hunsat.
+  unfold gf2_system_unsat in *.
+  intros rho.
+  unfold gf2_system_equiv in Heq.
+  rewrite Heq.
+  apply Hunsat.
+Qed.
+
+Lemma gf2_system_false_if_member_false :
+  forall (rho : Assignment)
+         (e : GF2Equation)
+         (sys : list GF2Equation),
+    In e sys ->
+    gf2_equation_evalb rho e = false ->
+    gf2_system_evalb rho sys = false.
+Proof.
+  intros rho e sys.
+  induction sys as [| h tl IH]; intros Hin Hfalse.
+  - contradiction.
+  - simpl in Hin.
+    destruct Hin as [Heq | HinTl].
+    + subst h.
+      unfold gf2_system_evalb.
+      simpl.
+      rewrite Hfalse.
+      reflexivity.
+    + unfold gf2_system_evalb.
+      simpl.
+      destruct (gf2_equation_evalb rho h) eqn:Hh.
+      * apply IH.
+        -- exact HinTl.
+        -- exact Hfalse.
+      * reflexivity.
+Qed.
+
+Definition gf2_contradiction_row : GF2Equation :=
+  {|
+    gf2_terms := [];
+    gf2_rhs := true
+  |}.
+
+Theorem gf2_system_unsat_if_contains_contradiction :
+  forall sys : list GF2Equation,
+    In gf2_contradiction_row sys ->
+    gf2_system_unsat sys.
+Proof.
+  intros sys Hin.
+  unfold gf2_system_unsat.
+  intros rho.
+  eapply gf2_system_false_if_member_false.
+  - exact Hin.
+  - unfold gf2_contradiction_row.
+    apply gf2_empty_true_equation_false.
+Qed.
+
+Theorem gf2_unsat_by_equiv_contradiction :
+  forall original reduced : list GF2Equation,
+    gf2_system_equiv original reduced ->
+    In gf2_contradiction_row reduced ->
+    gf2_system_unsat original.
+Proof.
+  intros original reduced Hequiv Hcontra.
+  eapply gf2_system_equiv_preserves_unsat.
+  - exact Hequiv.
+  - apply gf2_system_unsat_if_contains_contradiction.
+    exact Hcontra.
+Qed.
+
+(* ================================================================ *)
+(* 22. Row-operation equivalence wrappers                            *)
+(* ================================================================ *)
+
+Theorem gf2_system_equiv_row_xor_first :
+  forall (e1 e2 : GF2Equation)
+         (rest : list GF2Equation),
+    gf2_system_equiv
+      (e1 :: e2 :: rest)
+      ((gf2_xor_equation e1 e2) :: e2 :: rest).
+Proof.
+  intros e1 e2 rest.
+  unfold gf2_system_equiv.
+  intros rho.
+  apply gf2_system_row_xor_first_preserves.
+Qed.
+
+Theorem gf2_system_equiv_swap_first_two :
+  forall (e1 e2 : GF2Equation)
+         (rest : list GF2Equation),
+    gf2_system_equiv
+      (e1 :: e2 :: rest)
+      (e2 :: e1 :: rest).
+Proof.
+  intros e1 e2 rest.
+  unfold gf2_system_equiv.
+  intros rho.
+  apply gf2_system_swap_first_two_preserves.
+Qed.
+
+Theorem gf2_system_equiv_duplicate_first :
+  forall (e : GF2Equation)
+         (rest : list GF2Equation),
+    gf2_system_equiv
+      (e :: e :: rest)
+      (e :: rest).
+Proof.
+  intros e rest.
+  unfold gf2_system_equiv.
+  intros rho.
+  apply gf2_duplicate_row_second_redundant.
+Qed.
+
+Theorem gf2_system_equiv_empty_true_row :
+  forall rest : list GF2Equation,
+    gf2_system_equiv
+      ({| gf2_terms := [];
+          gf2_rhs := false |} :: rest)
+      rest.
+Proof.
+  intros rest.
+  unfold gf2_system_equiv.
+  intros rho.
+  apply gf2_empty_true_row_redundant.
+Qed.
