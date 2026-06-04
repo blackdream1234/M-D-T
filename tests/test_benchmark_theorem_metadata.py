@@ -110,7 +110,7 @@ def test_benchmark_excludes_non_theorem_fallback_from_theorem_table():
     assert not m.LanguageComparisonBenchmark._is_theorem_row(prototype_row)
     assert not m.LanguageComparisonBenchmark._is_theorem_row(square_wrong_backend)
     assert m.LanguageComparisonBenchmark._is_theorem_row(square_certified)
-    assert m.LanguageComparisonBenchmark._is_theorem_row(bestpn_certified_mixed_safe)
+    assert not m.LanguageComparisonBenchmark._is_theorem_row(bestpn_certified_mixed_safe)
 
 
 def test_theorem_row_requires_theorem_mode_used_true():
@@ -219,7 +219,7 @@ def test_theorem_table_requires_theorem_mode_used_true():
     assert not m.LanguageComparisonBenchmark._is_theorem_row(row)
 
 
-def test_bestpn_remains_empirical_unless_path_certified():
+def test_bestpn_remains_empirical_in_benchmark_theorem_table():
     m = _load_benchmark_module()
 
     empirical_bestpn = {
@@ -245,5 +245,5 @@ def test_bestpn_remains_empirical_unless_path_certified():
     }
 
     assert not m.LanguageComparisonBenchmark._is_theorem_row(empirical_bestpn)
-    assert m.LanguageComparisonBenchmark._is_theorem_row(certified_bestpn)
+    assert not m.LanguageComparisonBenchmark._is_theorem_row(certified_bestpn)
     assert not m.LanguageComparisonBenchmark._is_theorem_row(unsafe_bestpn)
