@@ -1758,3 +1758,150 @@ Proof.
   rewrite gf2_of_affine_system_correct.
   apply affine_path_encoding_correct.
 Qed.
+
+
+(* ================================================================ *)
+(* 18. GF(2) row-operation preservation                             *)
+(* ================================================================ *)
+
+(* Gaussian elimination over GF(2) uses elementary row operations.
+   The key operation is:
+
+       row_i := row_i xor row_j
+
+   This section proves that this operation preserves the solution set,
+   provided the pivot/source row remains in the system.
+*)
+
+Lemma xor_list_app :
+  forall l1 l2 : list bool,
+    xor_list (l1 ++ l2) =
+    xorb (xor_list l1) (xor_list l2).
+Proof.
+  intros l1 l2.
+  induction l1 as [| b tl IH].
+  - reflexivity.
+  - simpl.
+    rewrite IH.
+    destruct b;
+      destruct (xor_list tl);
+      destruct (xor_list l2);
+      reflexivity.
+Qed.
+
+Lemma gf2_lhs_evalb_app :
+  forall (rho : Assignment) (l1 l2 : list Atom),
+    gf2_lhs_evalb rho (l1 ++ l2) =
+    xorb (gf2_lhs_evalb rho l1)
+         (gf2_lhs_evalb rho l2).
+Proof.
+  intros rho l1 l2.
+  unfold gf2_lhs_evalb.
+  rewrite map_app.
+  apply xor_list_app.
+Qed.
+
+Definition gf2_xor_equation
+           (e1 e2 : GF2Equation) : GF2Equation :=
+  {|
+    gf2_terms := e1.(gf2_terms) ++ e2.(gf2_terms);
+    gf2_rhs   := xorb e1.(gf2_rhs) e2.(gf2_rhs)
+  |}.
+
+Theorem gf2_row_xor_preserves_with_pivot :
+  forall (rho : Assignment)
+         (e1 e2 : GF2Equation),
+    gf2_equation_evalb rho e2 = true ->
+    gf2_equation_evalb rho (gf2_xor_equation e1 e2)
+    =
+    gf2_equation_evalb rho e1.
+Proof.
+  intros rho [terms1 rhs1] [terms2 rhs2] He2.
+  unfold gf2_xor_equation in *.
+  unfold gf2_equation_evalb in *.
+  simpl in *.
+  rewrite gf2_lhs_evalb_app.
+
+  destruct (gf2_lhs_evalb rho terms1);
+    destruct (gf2_lhs_evalb rho terms2);
+    destruct rhs1;
+    destruct rhs2;
+    simpl in *;
+    try discriminate;
+    reflexivity.
+Qed.
+
+Theorem gf2_row_xor_sound :
+  forall (rho : Assignment)
+         (e1 e2 : GF2Equation),
+    gf2_equation_evalb rho e1 = true ->
+    gf2_equation_evalb rho e2 = true ->
+    gf2_equation_evalb rho (gf2_xor_equation e1 e2) = true.
+Proof.
+  intros rho e1 e2 H1 H2.
+  rewrite gf2_row_xor_preserves_with_pivot.
+  - exact H1.
+  - exact H2.
+Qed.
+
+Theorem gf2_row_xor_recover_left :
+  forall (rho : Assignment)
+         (e1 e2 : GF2Equation),
+    gf2_equation_evalb rho e2 = true ->
+    gf2_equation_evalb rho (gf2_xor_equation e1 e2) = true ->
+    gf2_equation_evalb rho e1 = true.
+Proof.
+  intros rho e1 e2 H2 Hxor.
+  rewrite <- (gf2_row_xor_preserves_with_pivot rho e1 e2 H2).
+  exact Hxor.
+Qed.
+
+Theorem gf2_system_row_xor_first_preserves :
+  forall (rho : Assignment)
+         (e1 e2 : GF2Equation)
+         (rest : list GF2Equation),
+    gf2_system_evalb rho (e1 :: e2 :: rest)
+    =
+    gf2_system_evalb rho ((gf2_xor_equation e1 e2) :: e2 :: rest).
+Proof.
+  intros rho e1 e2 rest.
+  unfold gf2_system_evalb.
+  simpl.
+  destruct (gf2_equation_evalb rho e2) eqn:He2.
+  - rewrite (gf2_row_xor_preserves_with_pivot rho e1 e2 He2).
+    reflexivity.
+  - destruct (gf2_equation_evalb rho e1);
+      destruct (gf2_equation_evalb rho (gf2_xor_equation e1 e2));
+      reflexivity.
+Qed.
+
+Theorem gf2_system_swap_first_two_preserves :
+  forall (rho : Assignment)
+         (e1 e2 : GF2Equation)
+         (rest : list GF2Equation),
+    gf2_system_evalb rho (e1 :: e2 :: rest)
+    =
+    gf2_system_evalb rho (e2 :: e1 :: rest).
+Proof.
+  intros rho e1 e2 rest.
+  unfold gf2_system_evalb.
+  simpl.
+  destruct (gf2_equation_evalb rho e1);
+    destruct (gf2_equation_evalb rho e2);
+    reflexivity.
+Qed.
+
+Theorem gf2_system_duplicate_first_preserves :
+  forall (rho : Assignment)
+         (e : GF2Equation)
+         (rest : list GF2Equation),
+    gf2_system_evalb rho (e :: e :: rest)
+    =
+    gf2_system_evalb rho (e :: rest).
+Proof.
+  intros rho e rest.
+  unfold gf2_system_evalb.
+  simpl.
+  destruct (gf2_equation_evalb rho e);
+    reflexivity.
+Qed.
