@@ -2040,3 +2040,107 @@ Proof.
   - simpl in Hcontra.
     discriminate.
 Qed.
+
+(* ================================================================ *)
+(* 20. GF(2) self-XOR and duplicate-row cancellation                 *)
+(* ================================================================ *)
+
+(* A row XORed with itself becomes the empty true equation:
+       e xor e  ===  0 = 0
+
+   This is the algebraic basis for eliminating duplicate rows and for
+   understanding why repeated variables cancel in GF(2).
+*)
+
+Lemma xorb_self_false :
+  forall b : bool,
+    xorb b b = false.
+Proof.
+  intros b.
+  destruct b; reflexivity.
+Qed.
+
+Lemma gf2_lhs_evalb_self_app :
+  forall (rho : Assignment) (terms : list Atom),
+    gf2_lhs_evalb rho (terms ++ terms) = false.
+Proof.
+  intros rho terms.
+  rewrite gf2_lhs_evalb_app.
+  rewrite xorb_self_false.
+  reflexivity.
+Qed.
+
+Theorem gf2_xor_equation_self_is_true :
+  forall (rho : Assignment) (e : GF2Equation),
+    gf2_equation_evalb rho (gf2_xor_equation e e) = true.
+Proof.
+  intros rho [terms rhs].
+  unfold gf2_xor_equation.
+  unfold gf2_equation_evalb.
+  simpl.
+  rewrite gf2_lhs_evalb_self_app.
+  rewrite xorb_self_false.
+  reflexivity.
+Qed.
+
+Theorem gf2_duplicate_row_second_redundant :
+  forall (rho : Assignment)
+         (e : GF2Equation)
+         (rest : list GF2Equation),
+    gf2_system_evalb rho (e :: e :: rest)
+    =
+    gf2_system_evalb rho (e :: rest).
+Proof.
+  intros rho e rest.
+  unfold gf2_system_evalb.
+  simpl.
+  destruct (gf2_equation_evalb rho e);
+    reflexivity.
+Qed.
+
+Theorem gf2_row_xor_with_self_preserves_system :
+  forall (rho : Assignment)
+         (e : GF2Equation)
+         (rest : list GF2Equation),
+    gf2_system_evalb rho (e :: rest)
+    =
+    gf2_system_evalb rho ((gf2_xor_equation e e) :: e :: rest).
+Proof.
+  intros rho e rest.
+  unfold gf2_system_evalb.
+  simpl.
+  rewrite gf2_xor_equation_self_is_true.
+  reflexivity.
+Qed.
+
+Theorem gf2_empty_true_row_redundant :
+  forall (rho : Assignment)
+         (rest : list GF2Equation),
+    gf2_system_evalb
+      rho
+      ({| gf2_terms := [];
+          gf2_rhs := false |} :: rest)
+    =
+    gf2_system_evalb rho rest.
+Proof.
+  intros rho rest.
+  unfold gf2_system_evalb.
+  simpl.
+  reflexivity.
+Qed.
+
+Theorem gf2_empty_false_row_blocks_system :
+  forall (rho : Assignment)
+         (rest : list GF2Equation),
+    gf2_system_evalb
+      rho
+      ({| gf2_terms := [];
+          gf2_rhs := true |} :: rest)
+    =
+    false.
+Proof.
+  intros rho rest.
+  unfold gf2_system_evalb.
+  simpl.
+  reflexivity.
+Qed.
