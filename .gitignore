@@ -18,3 +18,10 @@ experiments.db
 experiment_artifacts/
 *.db
 .DS_Store
+
+# Coq build artifacts
+coq/*.vo
+coq/*.vos
+coq/*.vok
+coq/*.glob
+coq/.*.aux
