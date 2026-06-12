@@ -7,7 +7,7 @@
 
 use crate::{
     class_counts, information_gain, negative_label_mask, penalized_gain, positive_label_mask,
-    BitSet, ClassCounts, ComparisonOp, Dataset, ThresholdPredicate,
+    BitSet, ClassCounts, ComparisonOp, ComposedPredicate, Dataset, MaskOp, ThresholdPredicate,
 };
 
 /// A scored 1D threshold split candidate.
@@ -25,6 +25,23 @@ pub struct SplitCandidate {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BestSplit {
     pub candidate: SplitCandidate,
+    pub inside_mask: BitSet,
+    pub outside_mask: BitSet,
+}
+
+/// A scored fixed composed-predicate candidate.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComposedCandidate {
+    pub predicate: ComposedPredicate,
+    pub score: f64,
+    pub inside_counts: ClassCounts,
+    pub outside_counts: ClassCounts,
+}
+
+/// Evaluated composed predicate plus inside/outside row masks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EvaluatedComposedPredicate {
+    pub candidate: ComposedCandidate,
     pub inside_mask: BitSet,
     pub outside_mask: BitSet,
 }
@@ -166,6 +183,59 @@ pub fn best_1d_split_with_min_leaf(
     Ok(best)
 }
 
+/// Evaluate a fixed ConjUI composed predicate with Python-matched scoring.
+///
+/// This helper is intentionally ConjUI-only: `predicate.op` must be
+/// `MaskOp::And`. It evaluates one already-constructed predicate, enforces
+/// `min_samples_leaf` on both branches, computes class counts, applies
+/// information gain followed by BIC-style `penalized_gain`, and returns `None`
+/// for invalid/nonpositive candidates.
+pub fn evaluate_composed_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: ComposedPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+) -> Result<Option<EvaluatedComposedPredicate>, String> {
+    if predicate.op != MaskOp::And {
+        return Err("ConjUI composed candidate evaluation requires MaskOp::And".to_string());
+    }
+
+    let inside_mask = predicate.evaluate_mask(dataset)?;
+    let outside_mask = inside_mask.complement();
+    if !satisfies_min_leaf(&inside_mask, &outside_mask, min_samples_leaf) {
+        return Ok(None);
+    }
+
+    let positive_mask = positive_label_mask(dataset);
+    let negative_mask = negative_label_mask(dataset);
+    let parent_counts = class_counts(
+        &BitSet::with_all(dataset.n_samples()),
+        &positive_mask,
+        &negative_mask,
+    )?;
+    let inside_counts = class_counts(&inside_mask, &positive_mask, &negative_mask)?;
+    let outside_counts = class_counts(&outside_mask, &positive_mask, &negative_mask)?;
+    let raw_gain = information_gain(parent_counts, inside_counts)?;
+    if raw_gain <= 0.0 {
+        return Ok(None);
+    }
+    let score = penalized_gain(raw_gain, arity, dataset.n_samples());
+    if score <= 0.0 {
+        return Ok(None);
+    }
+
+    Ok(Some(EvaluatedComposedPredicate {
+        candidate: ComposedCandidate {
+            predicate,
+            score,
+            inside_counts,
+            outside_counts,
+        },
+        inside_mask,
+        outside_mask,
+    }))
+}
+
 fn evaluate_1d_candidate_parts(
     dataset: &Dataset,
     predicate: ThresholdPredicate,
@@ -244,6 +314,39 @@ mod tests {
     use super::*;
 
     const EPS: f64 = 1e-12;
+
+    fn conjui_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0, 0.0],
+                vec![1.0, 1.0, 1.0],
+                vec![2.0, 2.0, 2.0],
+                vec![3.0, 3.0, 3.0],
+                vec![4.0, 4.0, 4.0],
+                vec![5.0, 5.0, 5.0],
+            ],
+            vec![1, 0, 0, 0, 1, 1],
+        )
+        .unwrap()
+    }
+
+    fn two_literal_conjui_predicate() -> ComposedPredicate {
+        ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 4.0,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        }
+    }
 
     fn one_feature_dataset() -> Dataset {
         Dataset::from_rows(
@@ -493,6 +596,223 @@ mod tests {
         assert_eq!(best.candidate.threshold, 4.5);
         // LT and GE tie at threshold 4.5; LT matches Python low-anchor order.
         assert_eq!(best.candidate.op, ComparisonOp::LessThan);
+    }
+
+    #[test]
+    fn evaluates_valid_two_literal_conjui_candidate() {
+        let ds = conjui_dataset();
+        let pred = two_literal_conjui_predicate();
+        let evaluated = evaluate_composed_candidate_with_min_leaf(&ds, pred.clone(), 1, 2)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2, 3]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0, 4, 5]);
+        assert_eq!(evaluated.candidate.predicate, pred);
+        assert_eq!(
+            evaluated.candidate.inside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 3
+            }
+        );
+        assert_eq!(
+            evaluated.candidate.outside_counts,
+            ClassCounts {
+                positive: 3,
+                negative: 0
+            }
+        );
+        let expected_score = penalized_gain(1.0, 2, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn evaluates_valid_three_literal_conjui_candidate() {
+        let ds = conjui_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 4.0,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 2,
+                    threshold: 4.0,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+        let evaluated = evaluate_composed_candidate_with_min_leaf(&ds, pred, 2, 3)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2, 3]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0, 4, 5]);
+        assert_eq!(evaluated.candidate.inside_counts.negative, 3);
+        assert_eq!(evaluated.candidate.outside_counts.positive, 3);
+        let expected_score = penalized_gain(1.0, 3, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn conjui_candidate_rejects_nonpositive_gain() {
+        let ds = Dataset::from_rows(
+            vec![vec![0.0], vec![1.0], vec![2.0], vec![3.0]],
+            vec![0, 1, 0, 1],
+        )
+        .unwrap();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![ThresholdPredicate {
+                feature_index: 0,
+                threshold: 2.0,
+                op: ComparisonOp::LessThan,
+            }],
+        };
+
+        assert!(evaluate_composed_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn conjui_candidate_rejects_inside_branch_too_small() {
+        let ds = conjui_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 2.0,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+
+        assert!(evaluate_composed_candidate_with_min_leaf(&ds, pred, 2, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn conjui_candidate_rejects_outside_branch_too_small() {
+        let ds = conjui_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 6.0,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+
+        assert!(evaluate_composed_candidate_with_min_leaf(&ds, pred, 2, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn conjui_candidate_min_samples_leaf_zero_disables_branch_rejection() {
+        let ds = Dataset::from_rows(
+            (0..10)
+                .map(|value| vec![value as f64, value as f64])
+                .collect(),
+            vec![0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        )
+        .unwrap();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+
+        assert!(
+            evaluate_composed_candidate_with_min_leaf(&ds, pred.clone(), 2, 2)
+                .unwrap()
+                .is_none()
+        );
+        let evaluated = evaluate_composed_candidate_with_min_leaf(&ds, pred, 0, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(evaluated.inside_mask.indices(), vec![0]);
+        assert!(evaluated.candidate.score > 0.0);
+    }
+
+    #[test]
+    fn conjui_candidate_propagates_invalid_feature_error() {
+        let ds = conjui_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![ThresholdPredicate {
+                feature_index: 99,
+                threshold: 0.0,
+                op: ComparisonOp::LessThan,
+            }],
+        };
+
+        assert!(evaluate_composed_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap_err()
+            .contains("out of range"));
+    }
+
+    #[test]
+    fn conjui_candidate_propagates_empty_predicate_error() {
+        let ds = conjui_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: Vec::new(),
+        };
+
+        assert!(evaluate_composed_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap_err()
+            .contains("at least one"));
+    }
+
+    #[test]
+    fn conjui_candidate_rejects_or_and_xor_operators() {
+        let ds = conjui_dataset();
+        for op in [MaskOp::Or, MaskOp::Xor] {
+            let pred = ComposedPredicate {
+                op,
+                literals: vec![ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                }],
+            };
+            let err = evaluate_composed_candidate_with_min_leaf(&ds, pred, 1, 1).unwrap_err();
+            assert!(err.contains("MaskOp::And"));
+        }
     }
 
     #[test]

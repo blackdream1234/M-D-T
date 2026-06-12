@@ -55,10 +55,12 @@ layers are:
   counts, entropy, information gain, gain ratio, and BIC-style penalized gain.
 - Deterministic 1D threshold candidate generation and best-split selection for
   scalar threshold predicates.
+- Fixed ConjUI composed-candidate evaluation with class counts, min-leaf
+  filtering, information gain, and BIC-style penalized gain.
 - Rust unit/integration tests covering shape validation, label validation,
   row-major layout, feature summaries, `.dl8` parsing contract, bitset mask
   behavior, predicate mask behavior, composed mask behavior, scoring formulas,
-  and 1D threshold search.
+  ConjUI fixed-candidate evaluation, and 1D threshold search.
 
 ## Bitset module status
 
@@ -140,6 +142,25 @@ No PyO3 binding exists yet, so scoring parity is covered by deterministic Rust
 tests whose constants are computed from these Python formulas.  Automated
 Python-vs-Rust scoring calls remain a TODO for the binding phase.
 
+
+## ConjUI fixed-candidate evaluation status
+
+`rust_gsnh/src/search.rs` now includes
+`evaluate_composed_candidate_with_min_leaf` for one fixed ConjUI predicate.  The
+function accepts only `MaskOp::And`, evaluates the composed predicate mask,
+forms the outside mask as the complement, enforces `min_samples_leaf` on both
+branches, computes inside/outside `ClassCounts`, computes Python-matched
+information gain, and then applies the existing BIC-style `penalized_gain` with
+the caller-provided arity.  Candidates whose branch sizes are invalid or whose
+raw/penalized gains are nonpositive return `Ok(None)`, matching Python's
+candidate-rejection behavior.
+
+This is not a search enumerator: callers must provide a concrete ConjUI
+predicate.  Horn, AntiHorn, Square2CNF, and Affine fixed-candidate evaluators
+remain unsupported in Rust.  In particular, this step does not implement Horn or
+AntiHorn polarity validation, Square2CNF clause structure, Affine/GF(2)
+certificates, tree recursion, PyO3 bindings, or benchmark integration.
+
 ## Deterministic 1D candidate-generation status
 
 `rust_gsnh/src/search.rs` now implements the smallest safe search layer: scalar
@@ -184,7 +205,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add scoring/evaluation parity for one composed predicate family.
+1. Add fixed-predicate evaluation for Affine/XOR or Horn/AntiHorn, one family at a time.
 2. Language-family predicate validation one family at a time.
 3. Small-tree prediction equivalence.
 4. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
@@ -195,7 +216,8 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 - No PyO3 binding yet.
 - No Rust language-family validators beyond generic threshold-mask composition yet.
-- No composed-predicate candidate scoring/search yet.
+- No composed-predicate enumeration/search yet; Rust only evaluates a supplied ConjUI predicate.
+- No fixed-candidate evaluators for Horn, AntiHorn, Square2CNF, or Affine yet.
 - No full Rust split search beyond deterministic 1D threshold candidates yet.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
@@ -209,6 +231,6 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Add scoring/evaluation parity for one composed predicate family using the
-Python-matched mask layer.  Do not implement tree recursion until family-level
-predicate masks and scores are stable.
+Implement fixed-predicate evaluation for Affine/XOR or Horn/AntiHorn only
+after ConjUI fixed-predicate evaluation remains stable.  Do not implement tree
+recursion until family-level predicate masks and scores are stable.
