@@ -131,3 +131,21 @@ def test_structural_order_all_pairs_count():
         atom_id(enc4, 0, t)
     add_structural_order_clauses(enc4)
     assert len(enc4.clauses) == 6
+
+
+def test_atom_id_canonicalizes_near_equal_thresholds():
+    enc = ThresholdEncoding(atom_to_var={}, var_to_atom=[], clauses=[])
+
+    assert atom_id(enc, 0, 0.1 + 0.2) == atom_id(enc, 0, 0.3)
+    assert len(enc.var_to_atom) == 1
+
+
+def test_structural_order_uses_canonical_thresholds():
+    enc = ThresholdEncoding(atom_to_var={}, var_to_atom=[], clauses=[])
+
+    atom_id(enc, 0, 0.1 + 0.2)
+    atom_id(enc, 0, 0.3)
+    add_structural_order_clauses(enc)
+
+    assert len(enc.var_to_atom) == 1
+    assert len(enc.clauses) == 0
