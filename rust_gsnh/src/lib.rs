@@ -23,3 +23,7 @@ pub use scoring::{
     class_counts, count_negative, count_positive, entropy, gain_ratio, information_gain,
     negative_label_mask, penalized_gain, positive_label_mask, ClassCounts,
 };
+pub use search::{
+    best_1d_split, best_1d_split_for_feature, evaluate_1d_candidate, generate_1d_thresholds,
+    BestSplit, SplitCandidate,
+};

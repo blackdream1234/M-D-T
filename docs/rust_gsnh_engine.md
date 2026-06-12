@@ -51,9 +51,11 @@ layers are:
   `Dataset` into a `BitSet`.
 - Label masks and basic scoring parity: positive/negative label masks, class
   counts, entropy, information gain, gain ratio, and BIC-style penalized gain.
+- Deterministic 1D threshold candidate generation and best-split selection for
+  scalar threshold predicates.
 - Rust unit/integration tests covering shape validation, label validation,
   row-major layout, feature summaries, `.dl8` parsing contract, bitset mask
-  behavior, predicate mask behavior, and scoring formulas.
+  behavior, predicate mask behavior, scoring formulas, and 1D threshold search.
 
 ## Bitset module status
 
@@ -115,6 +117,33 @@ No PyO3 binding exists yet, so scoring parity is covered by deterministic Rust
 tests whose constants are computed from these Python formulas.  Automated
 Python-vs-Rust scoring calls remain a TODO for the binding phase.
 
+## Deterministic 1D candidate-generation status
+
+`rust_gsnh/src/search.rs` now implements the smallest safe search layer: scalar
+1D threshold candidate generation and best-split selection.  The threshold
+convention matches Python's exact low-cardinality node-local behavior in
+`ExpertGSNHTree._search_best_split`: sorted unique feature values are converted
+to midpoints between adjacent unique values; constant features produce no
+threshold candidates.  Quantile-binned high-cardinality behavior is not moved to
+Rust yet.
+
+For each threshold, Rust evaluates `LessThan` first and `GreaterEqual` second,
+matching Python's low-anchor (`x < t`) before high-anchor (`x >= t`) exhaustive
+1D scan.  Candidate masks use `inside = predicate true` and
+`outside = complement(inside)`.  The score is Python's default tree-search 1D
+objective: raw information gain followed by BIC-style `penalized_gain` with
+arity 1.
+
+Tie-breaking is deterministic: higher score wins; then smaller feature index;
+then smaller threshold; then fixed operator order (`LessThan` before
+`GreaterEqual`).  This preserves Python's ascending feature scan and first-best
+behavior for the Rust subset implemented here.
+
+No PyO3 binding exists yet, so 1D candidate parity is covered by deterministic
+Rust tests whose expected thresholds, masks, class counts, and scores are
+computed from the inspected Python conventions.  Automated Python-vs-Rust
+candidate equivalence remains a TODO for the binding phase.
+
 ## Build and test
 
 ```bash
@@ -130,25 +159,29 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Deterministic 1D candidate generation and chosen-split equivalence.
-2. Horn/AntiHorn/ConjUI/Square2CNF/Affine predicate families, one at a time.
-3. Small-tree prediction equivalence.
-4. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
+1. Language-family predicate composition one family at a time, starting with the simplest Python-matched family.
+2. Small-tree prediction equivalence.
+3. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"`.
-5. Benchmarks with speedup ratios only after correctness parity is stable.
+4. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
 
 - No PyO3 binding yet.
 - No Rust predicate formulas beyond single-threshold masks yet.
-- No Rust split search yet.
+- No full Rust split search beyond deterministic 1D threshold candidates yet.
+- The Rust 1D API does not yet take `min_samples_leaf`; invalid empty splits
+  match Python scoring by returning `-1.0`, while caller-level leaf-size pruning
+  is deferred until the search/config layer is added.
+- High-cardinality quantile binning remains Python-only for now; Rust currently
+  mirrors the exact-value midpoint threshold convention used for low-cardinality
+  node-local 1D candidates.
 - No Rust tree construction yet.
 - No theorem certification is moved to Rust in this phase.
 - Python remains the only production engine and oracle.
 
 ## Next safe optimization step
 
-Implement deterministic 1D candidate generation only after the current scoring
-parity layer remains stable.  The first candidate-search step should compare the
-chosen Rust 1D split against Python on small deterministic datasets and stop on
-any mismatch.
+Implement language-family predicate composition one family at a time, starting
+with the simplest Python-matched family.  Do not implement tree recursion until
+family-level predicate masks and scores are stable.
