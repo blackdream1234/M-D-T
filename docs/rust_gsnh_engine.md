@@ -57,10 +57,12 @@ layers are:
   scalar threshold predicates.
 - Fixed ConjUI composed-candidate evaluation with class counts, min-leaf
   filtering, information gain, and BIC-style penalized gain.
+- Fixed Affine/XOR composed-candidate evaluation for supplied XOR predicates,
+  without search enumeration or theorem certificates.
 - Rust unit/integration tests covering shape validation, label validation,
   row-major layout, feature summaries, `.dl8` parsing contract, bitset mask
   behavior, predicate mask behavior, composed mask behavior, scoring formulas,
-  ConjUI fixed-candidate evaluation, and 1D threshold search.
+  ConjUI/Affine fixed-candidate evaluation, and 1D threshold search.
 
 ## Bitset module status
 
@@ -156,10 +158,26 @@ raw/penalized gains are nonpositive return `Ok(None)`, matching Python's
 candidate-rejection behavior.
 
 This is not a search enumerator: callers must provide a concrete ConjUI
-predicate.  Horn, AntiHorn, Square2CNF, and Affine fixed-candidate evaluators
+predicate.  Horn, AntiHorn, Square2CNF, and Affine certificate/search support
 remain unsupported in Rust.  In particular, this step does not implement Horn or
 AntiHorn polarity validation, Square2CNF clause structure, Affine/GF(2)
 certificates, tree recursion, PyO3 bindings, or benchmark integration.
+
+
+## Affine/XOR fixed-candidate evaluation status
+
+`rust_gsnh/src/search.rs` now also includes
+`evaluate_affine_candidate_with_min_leaf` for one supplied fixed Affine/XOR
+predicate.  The function accepts only `MaskOp::Xor`, evaluates odd-parity masks
+through `ComposedPredicate`, forms the outside mask as the complement, enforces
+`min_samples_leaf` on both branches, computes inside/outside `ClassCounts`,
+computes Python-matched information gain, and applies the existing BIC-style
+`penalized_gain` with the caller-provided arity.  Invalid branch sizes and
+nonpositive raw/penalized gains return `Ok(None)`.
+
+This is only fixed XOR mask evaluation and scoring.  Rust still does not
+enumerate Affine predicates, construct GF(2) bases, check Affine certificates,
+validate theorem conditions, or integrate Affine with tree search or benchmarks.
 
 ## Deterministic 1D candidate-generation status
 
@@ -205,7 +223,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add fixed-predicate evaluation for Affine/XOR or Horn/AntiHorn, one family at a time.
+1. Add fixed-predicate evaluation for Horn/AntiHorn OR semantics after explicit polarity-rule inspection.
 2. Language-family predicate validation one family at a time.
 3. Small-tree prediction equivalence.
 4. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
@@ -216,8 +234,10 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 - No PyO3 binding yet.
 - No Rust language-family validators beyond generic threshold-mask composition yet.
-- No composed-predicate enumeration/search yet; Rust only evaluates a supplied ConjUI predicate.
-- No fixed-candidate evaluators for Horn, AntiHorn, Square2CNF, or Affine yet.
+- No composed-predicate enumeration/search yet; Rust only evaluates supplied ConjUI or Affine/XOR predicates.
+- No fixed-candidate evaluators for Horn, AntiHorn, or Square2CNF yet.
+- Affine/XOR evaluation is mask/scoring only; there is no Affine enumeration,
+  GF(2) basis construction, theorem certificate checker, or benchmark integration.
 - No full Rust split search beyond deterministic 1D threshold candidates yet.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
@@ -231,6 +251,6 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement fixed-predicate evaluation for Affine/XOR or Horn/AntiHorn only
-after ConjUI fixed-predicate evaluation remains stable.  Do not implement tree
-recursion until family-level predicate masks and scores are stable.
+Implement fixed-predicate evaluation for Horn/AntiHorn OR semantics with
+explicit polarity-rule inspection.  Do not implement search or tree recursion
+until family-level predicate masks and scores are stable.

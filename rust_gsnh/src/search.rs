@@ -196,8 +196,50 @@ pub fn evaluate_composed_candidate_with_min_leaf(
     min_samples_leaf: usize,
     arity: usize,
 ) -> Result<Option<EvaluatedComposedPredicate>, String> {
-    if predicate.op != MaskOp::And {
-        return Err("ConjUI composed candidate evaluation requires MaskOp::And".to_string());
+    evaluate_fixed_composed_candidate_with_expected_op(
+        dataset,
+        predicate,
+        min_samples_leaf,
+        arity,
+        MaskOp::And,
+        "ConjUI",
+    )
+}
+
+/// Evaluate a fixed Affine/XOR composed predicate with Python-matched scoring.
+///
+/// This helper is intentionally Affine-mask-only: `predicate.op` must be
+/// `MaskOp::Xor`. It does not enumerate affine predicates, construct GF(2)
+/// bases, or build theorem certificates.
+pub fn evaluate_affine_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: ComposedPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+) -> Result<Option<EvaluatedComposedPredicate>, String> {
+    evaluate_fixed_composed_candidate_with_expected_op(
+        dataset,
+        predicate,
+        min_samples_leaf,
+        arity,
+        MaskOp::Xor,
+        "Affine/XOR",
+    )
+}
+
+fn evaluate_fixed_composed_candidate_with_expected_op(
+    dataset: &Dataset,
+    predicate: ComposedPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+    expected_op: MaskOp,
+    family_name: &str,
+) -> Result<Option<EvaluatedComposedPredicate>, String> {
+    if predicate.op != expected_op {
+        return Err(format!(
+            "{family_name} composed candidate evaluation requires {:?}",
+            expected_op
+        ));
     }
 
     let inside_mask = predicate.evaluate_mask(dataset)?;
@@ -328,6 +370,37 @@ mod tests {
             vec![1, 0, 0, 0, 1, 1],
         )
         .unwrap()
+    }
+
+    fn affine_xor_dataset_2d() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![0.0, 1.0],
+                vec![1.0, 0.0],
+                vec![1.0, 1.0],
+            ],
+            vec![0, 1, 1, 0],
+        )
+        .unwrap()
+    }
+
+    fn two_literal_affine_predicate() -> ComposedPredicate {
+        ComposedPredicate {
+            op: MaskOp::Xor,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        }
     }
 
     fn two_literal_conjui_predicate() -> ComposedPredicate {
@@ -811,7 +884,213 @@ mod tests {
                 }],
             };
             let err = evaluate_composed_candidate_with_min_leaf(&ds, pred, 1, 1).unwrap_err();
-            assert!(err.contains("MaskOp::And"));
+            assert!(err.contains("And"));
+        }
+    }
+
+    #[test]
+    fn evaluates_valid_two_literal_affine_xor_candidate() {
+        let ds = affine_xor_dataset_2d();
+        let pred = two_literal_affine_predicate();
+        let evaluated = evaluate_affine_candidate_with_min_leaf(&ds, pred.clone(), 1, 2)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0, 3]);
+        assert_eq!(evaluated.candidate.predicate, pred);
+        assert_eq!(
+            evaluated.candidate.inside_counts,
+            ClassCounts {
+                positive: 2,
+                negative: 0
+            }
+        );
+        assert_eq!(
+            evaluated.candidate.outside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 2
+            }
+        );
+        let expected_score = penalized_gain(1.0, 2, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn evaluates_valid_three_literal_affine_xor_candidate() {
+        let rows: Vec<Vec<f64>> = (0..8)
+            .map(|bits| {
+                vec![
+                    ((bits >> 2) & 1) as f64,
+                    ((bits >> 1) & 1) as f64,
+                    (bits & 1) as f64,
+                ]
+            })
+            .collect();
+        let labels: Vec<u8> = (0..8)
+            .map(|bits| ((((bits >> 2) & 1) ^ ((bits >> 1) & 1) ^ (bits & 1)) as u8))
+            .collect();
+        let ds = Dataset::from_rows(rows, labels).unwrap();
+        let pred = ComposedPredicate {
+            op: MaskOp::Xor,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 2,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        };
+        let evaluated = evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 3)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2, 4, 7]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0, 3, 5, 6]);
+        assert_eq!(evaluated.candidate.inside_counts.positive, 4);
+        assert_eq!(evaluated.candidate.outside_counts.negative, 4);
+        let expected_score = penalized_gain(1.0, 3, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn affine_candidate_rejects_nonpositive_gain() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![0.0, 1.0],
+                vec![1.0, 0.0],
+                vec![1.0, 1.0],
+            ],
+            vec![0, 0, 1, 1],
+        )
+        .unwrap();
+        let pred = two_literal_affine_predicate();
+
+        assert!(evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn affine_candidate_rejects_inside_branch_too_small() {
+        let ds = affine_xor_dataset_2d();
+        let pred = two_literal_affine_predicate();
+
+        assert!(evaluate_affine_candidate_with_min_leaf(&ds, pred, 3, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn affine_candidate_rejects_outside_branch_too_small() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+                vec![0.0, 0.0],
+            ],
+            vec![1, 1, 1, 1, 1, 0],
+        )
+        .unwrap();
+        let pred = two_literal_affine_predicate();
+
+        assert!(evaluate_affine_candidate_with_min_leaf(&ds, pred, 2, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn affine_candidate_min_samples_leaf_zero_disables_branch_rejection() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![1.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+            ],
+            vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
+        .unwrap();
+        let pred = two_literal_affine_predicate();
+
+        assert!(
+            evaluate_affine_candidate_with_min_leaf(&ds, pred.clone(), 2, 2)
+                .unwrap()
+                .is_none()
+        );
+        let evaluated = evaluate_affine_candidate_with_min_leaf(&ds, pred, 0, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(evaluated.inside_mask.indices(), vec![0]);
+        assert_eq!(evaluated.outside_mask.count_ones(), 9);
+        assert!(evaluated.candidate.score > 0.0);
+    }
+
+    #[test]
+    fn affine_candidate_propagates_invalid_feature_error() {
+        let ds = affine_xor_dataset_2d();
+        let pred = ComposedPredicate {
+            op: MaskOp::Xor,
+            literals: vec![ThresholdPredicate {
+                feature_index: 99,
+                threshold: 0.0,
+                op: ComparisonOp::LessThan,
+            }],
+        };
+
+        assert!(evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap_err()
+            .contains("out of range"));
+    }
+
+    #[test]
+    fn affine_candidate_propagates_empty_predicate_error() {
+        let ds = affine_xor_dataset_2d();
+        let pred = ComposedPredicate {
+            op: MaskOp::Xor,
+            literals: Vec::new(),
+        };
+
+        assert!(evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap_err()
+            .contains("at least one"));
+    }
+
+    #[test]
+    fn affine_candidate_rejects_and_and_or_operators() {
+        let ds = affine_xor_dataset_2d();
+        for op in [MaskOp::And, MaskOp::Or] {
+            let pred = ComposedPredicate {
+                op,
+                literals: vec![ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                }],
+            };
+            let err = evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 1).unwrap_err();
+            assert!(err.contains("Xor"));
         }
     }
 

@@ -26,6 +26,7 @@ pub use scoring::{
 pub use search::{
     best_1d_split, best_1d_split_for_feature, best_1d_split_for_feature_with_min_leaf,
     best_1d_split_with_min_leaf, evaluate_1d_candidate, evaluate_1d_candidate_with_min_leaf,
-    evaluate_composed_candidate_with_min_leaf, generate_1d_thresholds, BestSplit,
-    ComposedCandidate, EvaluatedComposedPredicate, SplitCandidate,
+    evaluate_affine_candidate_with_min_leaf, evaluate_composed_candidate_with_min_leaf,
+    generate_1d_thresholds, BestSplit, ComposedCandidate, EvaluatedComposedPredicate,
+    SplitCandidate,
 };
