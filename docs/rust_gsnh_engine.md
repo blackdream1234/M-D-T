@@ -49,9 +49,11 @@ layers are:
   predicate-mask operations.
 - `ThresholdPredicate`: deterministic per-row threshold mask evaluation from a
   `Dataset` into a `BitSet`.
+- Label masks and basic scoring parity: positive/negative label masks, class
+  counts, entropy, information gain, gain ratio, and BIC-style penalized gain.
 - Rust unit/integration tests covering shape validation, label validation,
   row-major layout, feature summaries, `.dl8` parsing contract, bitset mask
-  behavior, and predicate mask behavior.
+  behavior, predicate mask behavior, and scoring formulas.
 
 ## Bitset module status
 
@@ -87,6 +89,32 @@ the current equivalence-style tests mirror the documented Python semantics in
 Rust; automated Python-vs-Rust predicate tests are deferred until bindings are
 introduced.
 
+## Label-mask and scoring module status
+
+`rust_gsnh/src/scoring.rs` now provides `positive_label_mask`,
+`negative_label_mask`, count helpers, and `ClassCounts` for masks built from a
+`Dataset`.  Length mismatches return errors through the underlying `BitSet`
+operations instead of panicking.
+
+The implemented scoring formulas match the inspected Python references in
+`src/gsnh_mdt/scoring/`:
+
+- `entropy(pos, neg)`: binary entropy in base 2, returning `0.0` for empty or
+  pure counts.
+- `information_gain(total_pos, total_neg, in_pos, in_neg)`: parent entropy minus
+  weighted child entropies, returning `-1.0` for empty parent/inside/outside
+  splits and clamping valid negative roundoff to `0.0`.
+- `gain_ratio(...)`: information gain divided by split information, returning
+  `-1.0` when raw information gain is not positive, and returning raw IG if
+  split information is below `1e-10`.
+- `penalized_gain(raw_gain, arity, n_samples)`: BIC-style penalty
+  `(arity + 1) * ln(max(n_samples, 2)) / (2 * n_samples)`, returning `-1.0`
+  when raw or penalized gain is nonpositive.
+
+No PyO3 binding exists yet, so scoring parity is covered by deterministic Rust
+tests whose constants are computed from these Python formulas.  Automated
+Python-vs-Rust scoring calls remain a TODO for the binding phase.
+
 ## Build and test
 
 ```bash
@@ -102,13 +130,12 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Class-label masks and entropy/information-gain scoring with numeric parity tests.
-2. Deterministic 1D candidate generation and chosen-split equivalence.
-3. Horn/AntiHorn/ConjUI/Square2CNF/Affine predicate families, one at a time.
-4. Small-tree prediction equivalence.
-5. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
+1. Deterministic 1D candidate generation and chosen-split equivalence.
+2. Horn/AntiHorn/ConjUI/Square2CNF/Affine predicate families, one at a time.
+3. Small-tree prediction equivalence.
+4. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"`.
-6. Benchmarks with speedup ratios only after correctness parity is stable.
+5. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
 
@@ -121,6 +148,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement class-label masks and basic entropy/information-gain scoring parity.
-This should compare Rust numeric results against the Python scoring formulas on
-small deterministic examples before any candidate search is implemented.
+Implement deterministic 1D candidate generation only after the current scoring
+parity layer remains stable.  The first candidate-search step should compare the
+chosen Rust 1D split against Python on small deterministic datasets and stop on
+any mismatch.

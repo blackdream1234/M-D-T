@@ -19,3 +19,7 @@ pub mod tree;
 pub use bitset::BitSet;
 pub use data::{Dataset, DatasetError, FeatureSummary};
 pub use predicates::{ComparisonOp, ThresholdPredicate};
+pub use scoring::{
+    class_counts, count_negative, count_positive, entropy, gain_ratio, information_gain,
+    negative_label_mask, penalized_gain, positive_label_mask, ClassCounts,
+};
