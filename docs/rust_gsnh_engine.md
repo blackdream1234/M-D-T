@@ -47,9 +47,11 @@ layers are:
   remaining columns are features.
 - `BitSet`: compact deterministic `Vec<u64>` masks for future sample-set and
   predicate-mask operations.
+- `ThresholdPredicate`: deterministic per-row threshold mask evaluation from a
+  `Dataset` into a `BitSet`.
 - Rust unit/integration tests covering shape validation, label validation,
-  row-major layout, feature summaries, `.dl8` parsing contract, and bitset mask
-  behavior.
+  row-major layout, feature summaries, `.dl8` parsing contract, bitset mask
+  behavior, and predicate mask behavior.
 
 ## Bitset module status
 
@@ -66,6 +68,25 @@ produce sample masks.  A compact `Vec<u64>` representation will allow fast
 class-counting, branch partitioning, candidate reuse, and cached predicate masks
 without repeatedly allocating Python/NumPy boolean arrays in the Rust core.
 
+## Predicate module status
+
+`rust_gsnh/src/predicates.rs` now implements threshold predicate mask evaluation
+for `LessEqual`, `LessThan`, `GreaterEqual`, and `GreaterThan` using ordinary
+finite `f64` comparison semantics.  The Python reference for threshold literals
+is `GSNHLiteral.evaluate()`: `LiteralPolarity.GE` evaluates `X[:, feature] >=
+threshold`, and `LiteralPolarity.LT` evaluates `X[:, feature] < threshold`.
+Python's `CompareLiteral` also defines `<=`, `<`, `>=`, and `>` semantics for
+feature-to-feature comparisons, so the Rust threshold layer supports the same
+ordered comparison operators against scalar thresholds.
+
+`ComparisonOp::Equal` is present in the API but intentionally returns an error
+because the Python GSNH threshold literal family does not define equality
+predicates.  Ordered comparisons involving NaN follow Python/NumPy behavior for
+ordinary comparisons: they evaluate to false.  No PyO3 binding exists yet, so
+the current equivalence-style tests mirror the documented Python semantics in
+Rust; automated Python-vs-Rust predicate tests are deferred until bindings are
+introduced.
+
 ## Build and test
 
 ```bash
@@ -81,19 +102,18 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Threshold predicate evaluation with Python-vs-Rust mask equivalence.
-2. Entropy/information-gain scoring with numeric parity tests.
-3. Deterministic 1D candidate generation and chosen-split equivalence.
-4. Horn/AntiHorn/ConjUI/Square2CNF/Affine predicate families, one at a time.
-5. Small-tree prediction equivalence.
-6. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
+1. Class-label masks and entropy/information-gain scoring with numeric parity tests.
+2. Deterministic 1D candidate generation and chosen-split equivalence.
+3. Horn/AntiHorn/ConjUI/Square2CNF/Affine predicate families, one at a time.
+4. Small-tree prediction equivalence.
+5. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"`.
-7. Benchmarks with speedup ratios only after correctness parity is stable.
+6. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
 
 - No PyO3 binding yet.
-- No Rust predicate evaluation yet.
+- No Rust predicate formulas beyond single-threshold masks yet.
 - No Rust split search yet.
 - No Rust tree construction yet.
 - No theorem certification is moved to Rust in this phase.
@@ -101,6 +121,6 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement threshold predicate mask evaluation using `Dataset` and `BitSet`, then
-add Python-vs-Rust equivalence tests showing that Rust masks match Python
-`GSNHLiteral.evaluate()` on the same deterministic inputs.
+Implement class-label masks and basic entropy/information-gain scoring parity.
+This should compare Rust numeric results against the Python scoring formulas on
+small deterministic examples before any candidate search is implemented.
