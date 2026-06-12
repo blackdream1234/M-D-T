@@ -132,7 +132,9 @@ matching Python's low-anchor (`x < t`) before high-anchor (`x >= t`) exhaustive
 1D scan.  Candidate masks use `inside = predicate true` and
 `outside = complement(inside)`.  The score is Python's default tree-search 1D
 objective: raw information gain followed by BIC-style `penalized_gain` with
-arity 1.
+arity 1.  Python-compatible `min_samples_leaf` filtering is exposed through the
+`*_with_min_leaf` APIs; a candidate is skipped unless both inside and outside
+row counts are at least `min_samples_leaf`.
 
 Tie-breaking is deterministic: higher score wins; then smaller feature index;
 then smaller threshold; then fixed operator order (`LessThan` before
@@ -140,9 +142,9 @@ then smaller threshold; then fixed operator order (`LessThan` before
 behavior for the Rust subset implemented here.
 
 No PyO3 binding exists yet, so 1D candidate parity is covered by deterministic
-Rust tests whose expected thresholds, masks, class counts, and scores are
-computed from the inspected Python conventions.  Automated Python-vs-Rust
-candidate equivalence remains a TODO for the binding phase.
+Rust tests whose expected thresholds, masks, class counts, leaf-size filtering,
+and scores are computed from the inspected Python conventions.  Automated
+Python-vs-Rust candidate equivalence remains a TODO for the binding phase.
 
 ## Build and test
 
@@ -170,9 +172,9 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - No PyO3 binding yet.
 - No Rust predicate formulas beyond single-threshold masks yet.
 - No full Rust split search beyond deterministic 1D threshold candidates yet.
-- The Rust 1D API does not yet take `min_samples_leaf`; invalid empty splits
-  match Python scoring by returning `-1.0`, while caller-level leaf-size pruning
-  is deferred until the search/config layer is added.
+- The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
+  compatibility; callers that need Python tree parity should call the
+  `*_with_min_leaf` APIs with the tree's configured value.
 - High-cardinality quantile binning remains Python-only for now; Rust currently
   mirrors the exact-value midpoint threshold convention used for low-cardinality
   node-local 1D candidates.

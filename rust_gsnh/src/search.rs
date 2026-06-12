@@ -63,11 +63,113 @@ pub fn generate_1d_thresholds(dataset: &Dataset, feature_index: usize) -> Result
 /// Evaluate and score a single 1D threshold predicate.
 ///
 /// The stored score is the Python default tree-search objective for 1D splits:
-/// information gain followed by BIC-style `penalized_gain` with arity 1.
+/// information gain followed by BIC-style `penalized_gain` with arity 1. This
+/// raw evaluator does not apply `min_samples_leaf`; use
+/// [`evaluate_1d_candidate_with_min_leaf`] when matching Python candidate
+/// validity.
 pub fn evaluate_1d_candidate(
     dataset: &Dataset,
     predicate: ThresholdPredicate,
 ) -> Result<SplitCandidate, String> {
+    let (candidate, _, _) = evaluate_1d_candidate_parts(dataset, predicate)?;
+    Ok(candidate)
+}
+
+/// Evaluate and score a single 1D threshold predicate only if both branches
+/// satisfy Python's `min_samples_leaf` sample-count constraint.
+///
+/// Returns `Ok(None)` when either side has fewer than `min_samples_leaf` rows.
+/// A value of `0` disables the leaf-size rejection, matching the literal
+/// `count >= 0` rule.
+pub fn evaluate_1d_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: ThresholdPredicate,
+    min_samples_leaf: usize,
+) -> Result<Option<SplitCandidate>, String> {
+    let (candidate, inside_mask, outside_mask) = evaluate_1d_candidate_parts(dataset, predicate)?;
+    if !satisfies_min_leaf(&inside_mask, &outside_mask, min_samples_leaf) {
+        return Ok(None);
+    }
+    Ok(Some(candidate))
+}
+
+/// Return the best deterministic 1D split for one feature with
+/// `min_samples_leaf = 1` for backward-compatible non-empty branches.
+pub fn best_1d_split_for_feature(
+    dataset: &Dataset,
+    feature_index: usize,
+) -> Result<Option<BestSplit>, String> {
+    best_1d_split_for_feature_with_min_leaf(dataset, feature_index, 1)
+}
+
+/// Return the best deterministic 1D split for one feature, if any positive
+/// penalized-gain split satisfies `min_samples_leaf` on both branches.
+pub fn best_1d_split_for_feature_with_min_leaf(
+    dataset: &Dataset,
+    feature_index: usize,
+    min_samples_leaf: usize,
+) -> Result<Option<BestSplit>, String> {
+    let thresholds = generate_1d_thresholds(dataset, feature_index)?;
+    let mut best: Option<BestSplit> = None;
+
+    for threshold in thresholds {
+        for op in [ComparisonOp::LessThan, ComparisonOp::GreaterEqual] {
+            let predicate = ThresholdPredicate {
+                feature_index,
+                threshold,
+                op,
+            };
+            let (candidate, inside_mask, outside_mask) =
+                evaluate_1d_candidate_parts(dataset, predicate)?;
+            if !satisfies_min_leaf(&inside_mask, &outside_mask, min_samples_leaf) {
+                continue;
+            }
+            if candidate.score <= 0.0 {
+                continue;
+            }
+            let split = BestSplit {
+                candidate,
+                inside_mask,
+                outside_mask,
+            };
+            if should_replace(best.as_ref().map(|s| &s.candidate), &split.candidate) {
+                best = Some(split);
+            }
+        }
+    }
+
+    Ok(best)
+}
+
+/// Return the best deterministic 1D split across all features with
+/// `min_samples_leaf = 1` for backward-compatible non-empty branches.
+pub fn best_1d_split(dataset: &Dataset) -> Result<Option<BestSplit>, String> {
+    best_1d_split_with_min_leaf(dataset, 1)
+}
+
+/// Return the best deterministic 1D split across all features, if any positive
+/// penalized-gain split satisfies `min_samples_leaf` on both branches.
+pub fn best_1d_split_with_min_leaf(
+    dataset: &Dataset,
+    min_samples_leaf: usize,
+) -> Result<Option<BestSplit>, String> {
+    let mut best: Option<BestSplit> = None;
+    for feature_index in 0..dataset.n_features() {
+        if let Some(split) =
+            best_1d_split_for_feature_with_min_leaf(dataset, feature_index, min_samples_leaf)?
+        {
+            if should_replace(best.as_ref().map(|s| &s.candidate), &split.candidate) {
+                best = Some(split);
+            }
+        }
+    }
+    Ok(best)
+}
+
+fn evaluate_1d_candidate_parts(
+    dataset: &Dataset,
+    predicate: ThresholdPredicate,
+) -> Result<(SplitCandidate, BitSet, BitSet), String> {
     let inside_mask = predicate.evaluate_mask(dataset)?;
     let outside_mask = inside_mask.complement();
     let positive_mask = positive_label_mask(dataset);
@@ -87,64 +189,23 @@ pub fn evaluate_1d_candidate(
         raw_gain
     };
 
-    Ok(SplitCandidate {
+    let candidate = SplitCandidate {
         feature_index: predicate.feature_index,
         threshold: predicate.threshold,
         op: predicate.op,
         score,
         inside_counts,
         outside_counts,
-    })
+    };
+    Ok((candidate, inside_mask, outside_mask))
 }
 
-/// Return the best deterministic 1D split for one feature, if any positive
-/// penalized-gain split exists.
-pub fn best_1d_split_for_feature(
-    dataset: &Dataset,
-    feature_index: usize,
-) -> Result<Option<BestSplit>, String> {
-    let thresholds = generate_1d_thresholds(dataset, feature_index)?;
-    let mut best: Option<BestSplit> = None;
-
-    for threshold in thresholds {
-        for op in [ComparisonOp::LessThan, ComparisonOp::GreaterEqual] {
-            let predicate = ThresholdPredicate {
-                feature_index,
-                threshold,
-                op,
-            };
-            let candidate = evaluate_1d_candidate(dataset, predicate)?;
-            if candidate.score <= 0.0 {
-                continue;
-            }
-            let inside_mask = predicate.evaluate_mask(dataset)?;
-            let outside_mask = inside_mask.complement();
-            let split = BestSplit {
-                candidate,
-                inside_mask,
-                outside_mask,
-            };
-            if should_replace(best.as_ref().map(|s| &s.candidate), &split.candidate) {
-                best = Some(split);
-            }
-        }
-    }
-
-    Ok(best)
-}
-
-/// Return the best deterministic 1D split across all features, if any positive
-/// penalized-gain split exists.
-pub fn best_1d_split(dataset: &Dataset) -> Result<Option<BestSplit>, String> {
-    let mut best: Option<BestSplit> = None;
-    for feature_index in 0..dataset.n_features() {
-        if let Some(split) = best_1d_split_for_feature(dataset, feature_index)? {
-            if should_replace(best.as_ref().map(|s| &s.candidate), &split.candidate) {
-                best = Some(split);
-            }
-        }
-    }
-    Ok(best)
+fn satisfies_min_leaf(
+    inside_mask: &BitSet,
+    outside_mask: &BitSet,
+    min_samples_leaf: usize,
+) -> bool {
+    inside_mask.count_ones() >= min_samples_leaf && outside_mask.count_ones() >= min_samples_leaf
 }
 
 fn should_replace(current: Option<&SplitCandidate>, candidate: &SplitCandidate) -> bool {
@@ -214,6 +275,9 @@ mod tests {
         let ds = Dataset::from_rows(vec![vec![7.0], vec![7.0]], vec![0, 1]).unwrap();
         assert!(generate_1d_thresholds(&ds, 0).unwrap().is_empty());
         assert!(best_1d_split_for_feature(&ds, 0).unwrap().is_none());
+        assert!(best_1d_split_for_feature_with_min_leaf(&ds, 0, 2)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -221,6 +285,7 @@ mod tests {
         let ds = one_feature_dataset();
         assert!(generate_1d_thresholds(&ds, 1).is_err());
         assert!(best_1d_split_for_feature(&ds, 1).is_err());
+        assert!(best_1d_split_for_feature_with_min_leaf(&ds, 1, 1).is_err());
     }
 
     #[test]
@@ -253,6 +318,63 @@ mod tests {
     }
 
     #[test]
+    fn valid_split_with_min_samples_leaf_one_is_kept() {
+        let ds = one_feature_dataset();
+        let pred = ThresholdPredicate {
+            feature_index: 0,
+            threshold: 0.5,
+            op: ComparisonOp::LessThan,
+        };
+        let candidate = evaluate_1d_candidate_with_min_leaf(&ds, pred, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(candidate.inside_counts.total(), 1);
+        assert_eq!(candidate.outside_counts.total(), 5);
+    }
+
+    #[test]
+    fn candidate_rejected_when_inside_side_too_small() {
+        let ds = one_feature_dataset();
+        let pred = ThresholdPredicate {
+            feature_index: 0,
+            threshold: 0.5,
+            op: ComparisonOp::LessThan,
+        };
+        assert!(evaluate_1d_candidate_with_min_leaf(&ds, pred, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn candidate_rejected_when_outside_side_too_small() {
+        let ds = one_feature_dataset();
+        let pred = ThresholdPredicate {
+            feature_index: 0,
+            threshold: 4.5,
+            op: ComparisonOp::LessThan,
+        };
+        assert!(evaluate_1d_candidate_with_min_leaf(&ds, pred, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn min_samples_leaf_zero_disables_leaf_size_rejection() {
+        let ds = one_feature_dataset();
+        let pred = ThresholdPredicate {
+            feature_index: 0,
+            threshold: -1.0,
+            op: ComparisonOp::LessThan,
+        };
+        let candidate = evaluate_1d_candidate_with_min_leaf(&ds, pred, 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(candidate.inside_counts.total(), 0);
+        assert_eq!(candidate.outside_counts.total(), ds.n_samples());
+        assert_eq!(candidate.score, -1.0);
+    }
+
+    #[test]
     fn invalid_empty_split_scores_minus_one() {
         let ds = one_feature_dataset();
         let pred = ThresholdPredicate {
@@ -269,6 +391,9 @@ mod tests {
             }
         );
         assert_eq!(candidate.score, -1.0);
+        assert!(evaluate_1d_candidate_with_min_leaf(&ds, pred, 1)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -297,6 +422,47 @@ mod tests {
     }
 
     #[test]
+    fn all_candidates_rejected_returns_none() {
+        let ds = one_feature_dataset();
+        assert!(best_1d_split_for_feature_with_min_leaf(&ds, 0, 4)
+            .unwrap()
+            .is_none());
+        assert!(best_1d_split_with_min_leaf(&ds, 4).unwrap().is_none());
+    }
+
+    #[test]
+    fn min_samples_leaf_larger_than_dataset_size_returns_none() {
+        let ds = one_feature_dataset();
+        assert!(best_1d_split_with_min_leaf(&ds, ds.n_samples() + 1)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn best_split_changes_when_min_samples_leaf_increases() {
+        let ds = Dataset::from_rows(
+            (0..6).map(|value| vec![value as f64]).collect(),
+            vec![0, 0, 0, 0, 0, 1],
+        )
+        .unwrap();
+
+        let loose = best_1d_split_for_feature_with_min_leaf(&ds, 0, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(loose.candidate.threshold, 4.5);
+        assert_eq!(loose.candidate.op, ComparisonOp::LessThan);
+        assert_eq!(loose.outside_mask.count_ones(), 1);
+
+        let strict = best_1d_split_for_feature_with_min_leaf(&ds, 0, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(strict.candidate.threshold, 3.5);
+        assert_eq!(strict.candidate.op, ComparisonOp::LessThan);
+        assert!(strict.inside_mask.count_ones() >= 2);
+        assert!(strict.outside_mask.count_ones() >= 2);
+    }
+
+    #[test]
     fn best_split_across_multiple_features_uses_feature_order_tie_break() {
         let ds = Dataset::from_rows(
             vec![
@@ -314,13 +480,15 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_tie_break_prefers_smaller_threshold_then_operator_order() {
+    fn deterministic_tie_break_still_applies_among_valid_candidates() {
         let ds = Dataset::from_rows(
             (0..20).map(|value| vec![value as f64]).collect(),
             vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
         )
         .unwrap();
-        let best = best_1d_split_for_feature(&ds, 0).unwrap().unwrap();
+        let best = best_1d_split_for_feature_with_min_leaf(&ds, 0, 5)
+            .unwrap()
+            .unwrap();
         // thresholds 4.5 and 14.5 have equal positive penalized score; choose smaller threshold.
         assert_eq!(best.candidate.threshold, 4.5);
         // LT and GE tie at threshold 4.5; LT matches Python low-anchor order.
