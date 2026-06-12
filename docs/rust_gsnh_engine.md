@@ -49,13 +49,16 @@ layers are:
   predicate-mask operations.
 - `ThresholdPredicate`: deterministic per-row threshold mask evaluation from a
   `Dataset` into a `BitSet`.
+- `ComposedPredicate`: generic Python-matched mask composition for AND, OR,
+  and XOR over threshold predicates.
 - Label masks and basic scoring parity: positive/negative label masks, class
   counts, entropy, information gain, gain ratio, and BIC-style penalized gain.
 - Deterministic 1D threshold candidate generation and best-split selection for
   scalar threshold predicates.
 - Rust unit/integration tests covering shape validation, label validation,
   row-major layout, feature summaries, `.dl8` parsing contract, bitset mask
-  behavior, predicate mask behavior, scoring formulas, and 1D threshold search.
+  behavior, predicate mask behavior, composed mask behavior, scoring formulas,
+  and 1D threshold search.
 
 ## Bitset module status
 
@@ -90,6 +93,26 @@ ordinary comparisons: they evaluate to false.  No PyO3 binding exists yet, so
 the current equivalence-style tests mirror the documented Python semantics in
 Rust; automated Python-vs-Rust predicate tests are deferred until bindings are
 introduced.
+
+
+## Predicate-composition mask status
+
+`rust_gsnh/src/predicates.rs` now includes a generic `ComposedPredicate` mask
+layer over threshold literals.  This mirrors the inspected Python
+`GSNHPredicate.evaluate()` semantics: Horn and AntiHorn clauses use OR over
+literal masks, ConjUI / box predicates use AND, and Affine's current auxiliary
+Python representation uses XOR / odd parity.  Empty composed predicates return
+an error, matching Python's `GSNHPredicate` arity check that rejects zero
+literals.
+
+This step intentionally implements only mask composition, not language-family
+validation or theorem certification.  The Rust layer does not yet enforce Horn
+polarity limits, AntiHorn polarity limits, Square2CNF's conjunction of binary
+disjunctive clauses, or Affine/GF(2) certificate rules.  The tests manually
+compute Python-equivalent AND, OR, and XOR masks for two and three literals,
+invalid literal handling, deterministic sorted indices, class counts, and
+min-leaf-style branch-size checks.  Automated Python-vs-Rust composed-predicate
+equivalence remains a TODO for the PyO3 binding phase.
 
 ## Label-mask and scoring module status
 
@@ -161,16 +184,18 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Language-family predicate composition one family at a time, starting with the simplest Python-matched family.
-2. Small-tree prediction equivalence.
-3. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
+1. Add scoring/evaluation parity for one composed predicate family.
+2. Language-family predicate validation one family at a time.
+3. Small-tree prediction equivalence.
+4. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"`.
-4. Benchmarks with speedup ratios only after correctness parity is stable.
+5. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
 
 - No PyO3 binding yet.
-- No Rust predicate formulas beyond single-threshold masks yet.
+- No Rust language-family validators beyond generic threshold-mask composition yet.
+- No composed-predicate candidate scoring/search yet.
 - No full Rust split search beyond deterministic 1D threshold candidates yet.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
@@ -184,6 +209,6 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement language-family predicate composition one family at a time, starting
-with the simplest Python-matched family.  Do not implement tree recursion until
-family-level predicate masks and scores are stable.
+Add scoring/evaluation parity for one composed predicate family using the
+Python-matched mask layer.  Do not implement tree recursion until family-level
+predicate masks and scores are stable.

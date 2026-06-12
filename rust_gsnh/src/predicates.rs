@@ -18,6 +18,58 @@ pub enum ComparisonOp {
     Equal,
 }
 
+/// Boolean mask-composition operator for Python `GSNHPredicate` semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaskOp {
+    /// ConjUI / box semantics: all literal masks must be true.
+    And,
+    /// Horn and AntiHorn clause semantics: at least one literal mask is true.
+    Or,
+    /// Affine/XOR auxiliary semantics: odd parity of literal masks is true.
+    Xor,
+}
+
+/// Predicate made by composing threshold literals with one Python-matched mask operator.
+///
+/// This is a generic mask layer only.  It does not validate Horn/AntiHorn
+/// polarity restrictions, does not implement Square2CNF clauses, and does not
+/// make any theorem-certification claim.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComposedPredicate {
+    pub literals: Vec<ThresholdPredicate>,
+    pub op: MaskOp,
+}
+
+impl ComposedPredicate {
+    /// Evaluate a composed predicate and return the true row indices as a `BitSet`.
+    ///
+    /// Empty predicates return `Err`, matching Python `GSNHPredicate`, which
+    /// rejects arity 0 during construction.  Invalid literal feature indices and
+    /// unsupported literal operators are propagated from `ThresholdPredicate`.
+    pub fn evaluate_mask(&self, dataset: &Dataset) -> Result<BitSet, String> {
+        let Some((first, rest)) = self.literals.split_first() else {
+            return Err("composed predicate must contain at least one literal".to_string());
+        };
+
+        let mut result = first.evaluate_mask(dataset)?;
+        for literal in rest {
+            let mask = literal.evaluate_mask(dataset)?;
+            result = match self.op {
+                MaskOp::And => result.intersection(&mask)?,
+                MaskOp::Or => result.union(&mask)?,
+                MaskOp::Xor => xor_masks(&result, &mask)?,
+            };
+        }
+        Ok(result)
+    }
+}
+
+fn xor_masks(left: &BitSet, right: &BitSet) -> Result<BitSet, String> {
+    let left_only = left.difference(right)?;
+    let right_only = right.difference(left)?;
+    left_only.union(&right_only)
+}
+
 /// Single-feature threshold predicate: `x[feature_index] op threshold`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ThresholdPredicate {
@@ -221,5 +273,248 @@ mod tests {
             pred.evaluate_mask(&ds).unwrap().indices(),
             python_reference_indices
         );
+    }
+
+    #[test]
+    fn composed_and_matches_python_conjui_semantics_for_two_literals() {
+        let ds = tiny_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 8.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        };
+
+        // Python ConjUI uses literal_mask_0 & literal_mask_1.
+        assert_eq!(pred.evaluate_mask(&ds).unwrap().indices(), vec![1, 2]);
+    }
+
+    #[test]
+    fn composed_and_over_three_literals_is_deterministic() {
+        let ds = tiny_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 4.0,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 7.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        };
+
+        assert_eq!(pred.evaluate_mask(&ds).unwrap().indices(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn composed_or_matches_python_horn_antihorn_clause_semantics() {
+        let ds = tiny_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 7.0,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+
+        // Python Horn/AntiHorn `GSNHPredicate.evaluate` ORs literal masks.
+        assert_eq!(pred.evaluate_mask(&ds).unwrap().indices(), vec![0, 4]);
+    }
+
+    #[test]
+    fn composed_or_over_three_literals_is_sorted_and_deterministic() {
+        let ds = tiny_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 3.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 8.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        };
+
+        assert_eq!(
+            pred.evaluate_mask(&ds).unwrap().indices(),
+            vec![0, 1, 2, 3, 4]
+        );
+    }
+
+    #[test]
+    fn composed_xor_matches_python_affine_auxiliary_parity_semantics() {
+        let ds = tiny_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::Xor,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 2.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 8.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        };
+
+        // Odd parity of [rows 2,3,4] XOR [rows 0,1,2] is [0,1,3,4].
+        assert_eq!(pred.evaluate_mask(&ds).unwrap().indices(), vec![0, 1, 3, 4]);
+    }
+
+    #[test]
+    fn composed_xor_over_three_literals_uses_odd_parity() {
+        let ds = tiny_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::Xor,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 4.0,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 8.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        };
+
+        assert_eq!(pred.evaluate_mask(&ds).unwrap().indices(), vec![1, 2, 4]);
+    }
+
+    #[test]
+    fn composed_predicate_rejects_invalid_literal_feature_index() {
+        let ds = tiny_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![ThresholdPredicate {
+                feature_index: 99,
+                threshold: 0.0,
+                op: ComparisonOp::LessThan,
+            }],
+        };
+
+        assert!(pred
+            .evaluate_mask(&ds)
+            .unwrap_err()
+            .contains("out of range"));
+    }
+
+    #[test]
+    fn composed_predicate_rejects_empty_predicate_like_python_arity_check() {
+        let ds = tiny_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: Vec::new(),
+        };
+
+        assert!(pred
+            .evaluate_mask(&ds)
+            .unwrap_err()
+            .contains("at least one"));
+    }
+
+    #[test]
+    fn composed_mask_feeds_class_counts() {
+        let ds = tiny_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 8.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        };
+        let mask = pred.evaluate_mask(&ds).unwrap();
+        let counts = crate::class_counts(
+            &mask,
+            &crate::positive_label_mask(&ds),
+            &crate::negative_label_mask(&ds),
+        )
+        .unwrap();
+
+        assert_eq!(mask.indices(), vec![1, 2]);
+        assert_eq!(counts.positive, 1);
+        assert_eq!(counts.negative, 1);
+    }
+
+    #[test]
+    fn composed_mask_supports_min_leaf_checks_without_extra_api() {
+        let ds = tiny_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 7.0,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+        let inside = pred.evaluate_mask(&ds).unwrap();
+        let outside = inside.complement();
+
+        assert_eq!(inside.count_ones(), 2);
+        assert_eq!(outside.count_ones(), 3);
+        assert!(inside.count_ones() >= 2 && outside.count_ones() >= 2);
+        assert!(!(inside.count_ones() >= 3 && outside.count_ones() >= 3));
     }
 }
