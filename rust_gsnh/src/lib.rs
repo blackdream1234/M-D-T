@@ -31,3 +31,8 @@ pub use search::{
     generate_1d_thresholds, BestSplit, ComposedCandidate, EvaluatedComposedPredicate,
     SplitCandidate,
 };
+
+pub use square_cnf::{
+    evaluate_square2cnf_candidate_with_min_leaf, EvaluatedSquare2CNFPredicate, Square2CNFCandidate,
+    Square2CNFPredicate, Square2Clause,
+};

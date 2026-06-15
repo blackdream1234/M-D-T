@@ -203,6 +203,36 @@ clause; AntiHorn accepts at most one negative literal.  Violations return clear
 candidates, validate theorem certificates, or integrate either family with Rust
 tree search.
 
+## Square2CNF fixed-candidate evaluation status
+
+`rust_gsnh/src/square_cnf.rs` now implements a Square2CNF-specific fixed
+predicate structure instead of forcing Square2CNF through `ComposedPredicate`.
+The public structures are `Square2Clause`, `Square2CNFPredicate`,
+`Square2CNFCandidate`, and `EvaluatedSquare2CNFPredicate`.  A clause evaluates
+as the OR/union of two `ThresholdPredicate` masks, and the full predicate
+evaluates as the AND/intersection of all clause masks.
+
+This mirrors Python `Square2CNFPredicate`: the current Python name is
+`Square2CNF` / `LanguageFamily.SQUARE_2CNF`, while legacy `SquareCNF` refers to
+the older ConjUI/box-style code path.  Python accepts one to three clauses and
+requires each clause to contain exactly two supported threshold literals; it
+rejects zero clauses, more than three clauses, non-binary clauses, and
+Compare/Binary literals.  The Rust structure has fixed two-literal clauses by
+type and returns an error for zero or more than three clauses at evaluation
+time.
+
+`evaluate_square2cnf_candidate_with_min_leaf` evaluates one supplied predicate,
+forms the outside mask as the complement, enforces `min_samples_leaf` on both
+branches (`0` disables branch-size rejection, matching the existing Rust/Python
+count convention), computes inside/outside `ClassCounts`, computes
+Python-matched information gain, and applies the existing BIC-style
+`penalized_gain` with the caller-provided arity.  Invalid branch sizes and
+nonpositive raw/penalized gains return `Ok(None)`.
+
+This step does not enumerate Square2CNF candidates, implement the Python
+`search_square_2cnf` candidate cap or feature-pair pruning, construct theorem
+certificates, integrate with benchmarks, or perform tree recursion.
+
 ## Deterministic 1D candidate-generation status
 
 `rust_gsnh/src/search.rs` now implements the smallest safe search layer: scalar
@@ -247,8 +277,8 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add Square2CNF fixed-predicate evaluation as an explicit clause structure.
-2. Language-family predicate validation one family at a time.
+1. Add a unified fixed-predicate evaluation facade that dispatches by family name.
+2. Language-family predicate validation/search one family at a time.
 3. Small-tree prediction equivalence.
 4. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"`.
@@ -259,7 +289,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - No PyO3 binding yet.
 - No composed-predicate enumeration/search yet; Rust only evaluates supplied ConjUI, Affine/XOR, Horn, and AntiHorn predicates.
 - Horn and AntiHorn are fixed-predicate evaluators only; there is no Rust Horn/AntiHorn search, theorem certificate checker, or benchmark integration.
-- No fixed-candidate evaluator for Square2CNF yet.
+- Square2CNF fixed-candidate evaluation exists, but Square2CNF candidate enumeration/search and theorem certificates are still not implemented in Rust.
 - Affine/XOR evaluation is mask/scoring only; there is no Affine enumeration,
   GF(2) basis construction, theorem certificate checker, or benchmark integration.
 - No full Rust split search beyond deterministic 1D threshold candidates yet.
@@ -275,6 +305,4 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement Square2CNF fixed-predicate evaluation as a separate clause structure
-only after Horn/AntiHorn fixed evaluation is stable.  Do not implement search or
-tree recursion until family-level predicate masks and scores are stable.
+Implement a unified fixed-predicate evaluation facade that dispatches by family name now that ConjUI, Affine/XOR, Horn, AntiHorn, and Square2CNF fixed evaluators are present.  Do not implement search or tree recursion until family-level predicate masks and scores remain stable behind that facade.
