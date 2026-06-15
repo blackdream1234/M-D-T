@@ -46,3 +46,8 @@ pub use square_cnf::{
     best_square2cnf_split_with_min_leaf, evaluate_square2cnf_candidate_with_min_leaf,
     EvaluatedSquare2CNFPredicate, Square2CNFCandidate, Square2CNFPredicate, Square2Clause,
 };
+
+pub use tree::{
+    build_stump_with_family, majority_leaf_from_mask, predict_stump, predict_stump_row, LeafNode,
+    PredictionLabel, StumpNode, StumpTree,
+};

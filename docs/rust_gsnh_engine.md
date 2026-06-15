@@ -502,6 +502,38 @@ Unsupported Python family names remain intentionally unsupported in Rust:
 `Any`, `BestPerNode`, and legacy `SquareCNF`. The facade is not all-family
 search, not BestPerNode, not benchmark integration, and not tree recursion.
 
+## One-node stump builder status
+
+`rust_gsnh/src/tree.rs` now implements a minimal depth-1 stump API on top of
+`best_family_split`. The builder either returns a single majority leaf when the
+selected family has no valid positive split, or returns one root split with a
+true/inside leaf and a false/outside leaf. It does not recurse and does not add
+a depth parameter.
+
+The inspected Python tree code stores leaves as dictionaries with class counts,
+`proba`, `predicate = None`, and `is_leaf = True`. Python predicts class 1 when
+the positive probability is at least `0.5`; with its default Laplace smoothing,
+exact count ties therefore predict the positive class. The Rust stump mirrors
+that prediction convention directly as `PredictionLabel::Positive` when
+`positive >= negative`, and `PredictionLabel::Negative` otherwise.
+
+Branch convention also mirrors Python: predicate true / inside-mask rows go to
+the true leaf (Python's left child), while predicate false / outside-mask rows
+go to the false leaf (Python's right child). Prediction re-evaluates the stored
+predicate against the supplied dataset, checks the requested row index, and
+returns the selected leaf's majority label.
+
+The supported split payloads are exactly the current `BestFamilySplit` variants:
+`Composed` for ConjUI, Horn, AntiHorn, and Affine/XOR, and `Square2CNF` for
+Square2CNF. The public stump API is `majority_leaf_from_mask`,
+`build_stump_with_family`, `predict_stump_row`, and `predict_stump`.
+Automated Python-vs-Rust stump equivalence remains a TODO until PyO3 bindings
+exist.
+
+Current limitations: no recursive tree learning, no pruning, no BestPerNode or
+all-family search, no theorem certificates, no benchmark integration, and no
+accuracy helper yet.
+
 ## Build and test
 
 ```bash
@@ -517,8 +549,10 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Implement a shallow one-node Rust tree/stump builder that calls `best_family_split` for one selected family.
-2. Add small-tree prediction equivalence only after the stump builder is stable.
+1. Implement depth-1 prediction parity checks and a small Rust accuracy helper
+   for the one-node stump.
+2. Add small-tree prediction equivalence only after the stump prediction helper
+   is stable.
 3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"` after Rust search parity is established.
 4. Benchmarks with speedup ratios only after correctness parity is stable.
@@ -535,17 +569,17 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - Square2CNF theorem certificates are still not implemented in Rust.
 - Affine/XOR search is threshold-literal XOR search only; there is no GF(2)
   basis construction, theorem certificate checker, or benchmark integration.
-- No recursive Rust tree learning yet; family search is available only through one selected-family facade and the underlying deterministic family searches.
+- No recursive Rust tree learning yet; only a one-node stump builder is available on top of the selected-family search facade.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
   `*_with_min_leaf` APIs with the tree's configured value.
 - High-cardinality quantile binning remains Python-only for now; Rust currently
   mirrors the exact-value midpoint threshold convention used for low-cardinality
   node-local 1D candidates.
-- No Rust tree construction yet.
+- Rust tree construction is limited to a non-recursive one-node stump.
 - No theorem certification is moved to Rust in this phase.
 - Python remains the only production engine and oracle.
 
 ## Next safe optimization step
 
-Implement a shallow one-node Rust tree/stump builder that calls `best_family_split` for one selected family and returns either a leaf or a root split with two leaves. Keep theorem certificates out of Rust and do not implement recursive tree learning yet.
+Implement depth-1 prediction parity checks and a small accuracy helper for the Rust stump. Keep theorem certificates out of Rust and do not implement recursive depth-limited tree learning yet.
