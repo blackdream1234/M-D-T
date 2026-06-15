@@ -395,6 +395,46 @@ lexicographically smaller literal sequence by feature index, threshold, and
 operator order (`LessThan` before `GreaterEqual`).  Automated Python-vs-Rust
 AntiHorn search equivalence remains a TODO until PyO3 bindings exist.
 
+
+## Deterministic Affine/XOR search status
+
+`rust_gsnh/src/affine.rs` now implements deterministic Affine/XOR
+enumeration up to arity 2.  This is still not tree recursion and does not
+search Square2CNF or benchmark-level method combinations.
+
+The matched Python reference is `src/gsnh_mdt/search/affine_search.py`, the
+Affine branch in `ExpertGSNHTree._search_best_split`, and the Affine predicate
+construction helpers in `src/gsnh_mdt/tree/builder.py`.  Python's optimized 2D
+Affine kernel uses prefix-sum box counts and evaluates both XOR-true and
+XOR-false/XNOR regions.  The builder represents the selected split as a
+`GSNHPredicate` with `language_family=LanguageFamily.AFFINE` and `is_xor=True`.
+Rust keeps the same public mask family, `MaskOp::Xor`; XNOR-style regions are
+covered by enumerating XOR over opposite literal polarities rather than by
+adding a separate XNOR operator.
+
+The Rust subset deliberately supports arity 1 and arity 2 only.  Arity 1
+enumerates one-literal `MaskOp::Xor` predicates and matches the existing Rust
+1D threshold search.  Arity 2 enumerates canonical feature pairs `i < j`,
+midpoint thresholds from `generate_1d_thresholds`, and the four deterministic
+literal-polarity combinations LT/LT, LT/GE, GE/LT, and GE/GE.  This exhaustive
+mask-based implementation is simpler than Python's integral-image search but
+represents the same small deterministic threshold-literal XOR subset used by
+the Rust engine.
+
+Scoring and validity are shared with the fixed-family layer: raw information
+gain, BIC-style `penalized_gain`, and branch sample-count filtering via
+`min_samples_leaf`.  `min_samples_leaf = 0` disables branch-size rejection,
+matching the existing Rust convention.  If no positive penalized-gain candidate
+survives, the function returns `Ok(None)`.
+
+Tie-breaking is deterministic: higher score wins; then smaller arity; then the
+lexicographically smaller literal sequence by feature index, threshold, and
+operator order (`LessThan` before `GreaterEqual`).  Automated Python-vs-Rust
+Affine search equivalence remains a TODO until PyO3 bindings exist.
+
+This search does not implement 3D Affine, GF(2) basis construction, theorem
+certificate checking, benchmark integration, or tree recursion.
+
 ## Build and test
 
 ```bash
@@ -410,7 +450,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Implement deterministic Affine/XOR search as a separate commit while keeping theorem certificates out of Rust.
+1. Implement deterministic Square2CNF search as a separate commit while keeping theorem certificates out of Rust.
 2. Add small-tree prediction equivalence only after one-family search is stable.
 3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"` after Rust search parity is established.
@@ -422,12 +462,12 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - ConjUI enumeration/search exists only for arity 1 and arity 2; there is no 3D ConjUI Rust search yet.
 - Horn enumeration/search exists only for arity 1 and arity 2; there is no 3D Horn Rust search yet.
 - AntiHorn enumeration/search exists only for arity 1 and arity 2; there is no 3D AntiHorn Rust search yet.
-- Affine/XOR and Square2CNF remain fixed-predicate evaluators only; they are not enumerated/searched in Rust yet.
+- Affine/XOR enumeration/search exists only for arity 1 and arity 2; there is no 3D Affine Rust search yet. Square2CNF remains a fixed-predicate evaluator only; it is not enumerated/searched in Rust yet.
 - Horn and AntiHorn have no Rust theorem certificate checker or benchmark integration.
 - Square2CNF fixed-candidate evaluation exists, but Square2CNF candidate enumeration/search and theorem certificates are still not implemented in Rust.
-- Affine/XOR evaluation is mask/scoring only; there is no Affine enumeration,
-  GF(2) basis construction, theorem certificate checker, or benchmark integration.
-- No full Rust split search beyond deterministic 1D threshold candidates, arity <= 2 ConjUI candidates, arity <= 2 Horn candidates, and arity <= 2 AntiHorn candidates yet.
+- Affine/XOR search is threshold-literal XOR search only; there is no GF(2)
+  basis construction, theorem certificate checker, or benchmark integration.
+- No full Rust split search beyond deterministic 1D threshold candidates, arity <= 2 ConjUI candidates, arity <= 2 Horn candidates, arity <= 2 AntiHorn candidates, and arity <= 2 Affine/XOR candidates yet.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
   `*_with_min_leaf` APIs with the tree's configured value.
@@ -440,4 +480,4 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement deterministic Affine/XOR search as a separate commit. Keep theorem certificates out of Rust and do not implement tree recursion yet.
+Implement deterministic Square2CNF search as a separate commit. Keep theorem certificates out of Rust and do not implement tree recursion yet.
