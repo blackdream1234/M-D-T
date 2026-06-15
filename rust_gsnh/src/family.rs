@@ -1,14 +1,18 @@
-//! Unified fixed-predicate family facade for the incremental Rust GSNH engine.
+//! Unified family facades for the incremental Rust GSNH engine.
 //!
-//! This module dispatches already-constructed predicates to the fixed-family
-//! evaluators.  It does not enumerate candidates, recurse trees, bind to
-//! Python, or make theorem-certification claims.
+//! This module contains two conservative dispatch layers: one for evaluating
+//! already-constructed fixed predicates, and one for searching exactly one
+//! selected family. It does not recurse trees, bind to Python, compare families,
+//! or make theorem-certification claims.
 
 use crate::{
-    evaluate_affine_candidate_with_min_leaf, evaluate_antihorn_candidate_with_min_leaf,
-    evaluate_composed_candidate_with_min_leaf, evaluate_horn_candidate_with_min_leaf,
-    evaluate_square2cnf_candidate_with_min_leaf, ComposedPredicate, Dataset,
-    EvaluatedComposedPredicate, EvaluatedSquare2CNFPredicate, Square2CNFPredicate,
+    best_affine_split_with_min_leaf, best_antihorn_split_with_min_leaf,
+    best_conjui_split_with_min_leaf, best_horn_split_with_min_leaf,
+    best_square2cnf_split_with_min_leaf, evaluate_affine_candidate_with_min_leaf,
+    evaluate_antihorn_candidate_with_min_leaf, evaluate_composed_candidate_with_min_leaf,
+    evaluate_horn_candidate_with_min_leaf, evaluate_square2cnf_candidate_with_min_leaf,
+    ComposedPredicate, Dataset, EvaluatedComposedPredicate, EvaluatedSquare2CNFPredicate,
+    Square2CNFPredicate,
 };
 
 /// Rust subset of Python `LanguageFamily` supported by the fixed-predicate facade.
@@ -36,6 +40,27 @@ pub enum FixedPredicate {
 pub enum EvaluatedFixedPredicate {
     Composed(EvaluatedComposedPredicate),
     Square2CNF(EvaluatedSquare2CNFPredicate),
+}
+
+/// Unified best-split result returned by one selected family search.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BestFamilySplit {
+    /// Search result for ConjUI, Horn, AntiHorn, and Affine/XOR.
+    Composed(EvaluatedComposedPredicate),
+    /// Search result for Square2CNF clause predicates.
+    Square2CNF(EvaluatedSquare2CNFPredicate),
+}
+
+/// Configuration for searching exactly one language family.
+///
+/// For ConjUI, Horn, AntiHorn, and Affine, `max_arity` means maximum number of
+/// threshold literals. For Square2CNF, `max_arity` means maximum number of
+/// two-literal OR clauses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FamilySearchConfig {
+    pub family: LanguageFamily,
+    pub max_arity: usize,
+    pub min_samples_leaf: usize,
 }
 
 /// Evaluate one already-constructed fixed predicate using the requested family.
@@ -87,10 +112,59 @@ pub fn evaluate_fixed_predicate_with_min_leaf(
     }
 }
 
+/// Search exactly one selected family and return its best valid split.
+///
+/// This facade deliberately dispatches to one family-specific search function
+/// and does not compare across families. It does not implement Python `Any`,
+/// `BestPerNode`, legacy `SquareCNF`, tree recursion, theorem certificates,
+/// benchmark integration, or bindings.
+pub fn best_family_split(
+    dataset: &Dataset,
+    config: FamilySearchConfig,
+) -> Result<Option<BestFamilySplit>, String> {
+    match config.family {
+        LanguageFamily::ConjUI => Ok(best_conjui_split_with_min_leaf(
+            dataset,
+            config.max_arity,
+            config.min_samples_leaf,
+        )?
+        .map(BestFamilySplit::Composed)),
+        LanguageFamily::Horn => {
+            Ok(
+                best_horn_split_with_min_leaf(dataset, config.max_arity, config.min_samples_leaf)?
+                    .map(BestFamilySplit::Composed),
+            )
+        }
+        LanguageFamily::AntiHorn => Ok(best_antihorn_split_with_min_leaf(
+            dataset,
+            config.max_arity,
+            config.min_samples_leaf,
+        )?
+        .map(BestFamilySplit::Composed)),
+        LanguageFamily::Affine => Ok(best_affine_split_with_min_leaf(
+            dataset,
+            config.max_arity,
+            config.min_samples_leaf,
+        )?
+        .map(BestFamilySplit::Composed)),
+        LanguageFamily::Square2CNF => Ok(best_square2cnf_split_with_min_leaf(
+            dataset,
+            config.max_arity,
+            config.min_samples_leaf,
+        )?
+        .map(BestFamilySplit::Square2CNF)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ComparisonOp, MaskOp, Square2Clause, ThresholdPredicate};
+    use crate::{
+        best_affine_split_with_min_leaf, best_antihorn_split_with_min_leaf,
+        best_conjui_split_with_min_leaf, best_horn_split_with_min_leaf,
+        best_square2cnf_split_with_min_leaf, ComparisonOp, MaskOp, Square2Clause,
+        ThresholdPredicate,
+    };
 
     fn dataset() -> Dataset {
         Dataset::from_rows(
@@ -416,5 +490,207 @@ mod tests {
             1,
         )
         .is_err());
+    }
+
+    fn tie_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![1.0, 1.0],
+                vec![1.0, 1.0],
+            ],
+            vec![0, 0, 1, 1],
+        )
+        .unwrap()
+    }
+
+    fn horn_search_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 1.0],
+                vec![0.0, 1.0],
+                vec![2.0, 0.0],
+                vec![2.0, 1.0],
+            ],
+            vec![1, 0, 1, 1, 0, 1],
+        )
+        .unwrap()
+    }
+
+    fn antihorn_search_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 1.0],
+                vec![0.0, 1.0],
+                vec![2.0, 0.0],
+                vec![2.0, 1.0],
+            ],
+            vec![1, 1, 1, 0, 1, 1],
+        )
+        .unwrap()
+    }
+
+    fn xor_search_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![0.0, 1.0],
+                vec![1.0, 0.0],
+                vec![1.0, 1.0],
+                vec![2.0, 0.0],
+                vec![2.0, 1.0],
+            ],
+            vec![0, 1, 1, 0, 1, 0],
+        )
+        .unwrap()
+    }
+
+    fn square_search_dataset() -> Dataset {
+        let mut rows = Vec::new();
+        let mut labels = Vec::new();
+        for a in 0..=1 {
+            for b in 0..=1 {
+                for c in 0..=1 {
+                    for d in 0..=1 {
+                        rows.push(vec![a as f64, b as f64, c as f64, d as f64]);
+                        labels.push(((a == 1 || b == 1) && (c == 1 || d == 1)) as u8);
+                    }
+                }
+            }
+        }
+        Dataset::from_rows(rows, labels).unwrap()
+    }
+
+    fn no_gain_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![vec![0.0], vec![1.0], vec![2.0], vec![3.0]],
+            vec![0, 0, 0, 0],
+        )
+        .unwrap()
+    }
+
+    fn assert_composed_score_matches(
+        family: LanguageFamily,
+        facade: Option<BestFamilySplit>,
+        direct: Option<EvaluatedComposedPredicate>,
+    ) {
+        let facade = facade.unwrap_or_else(|| panic!("{family:?} facade returned None"));
+        let direct = direct.unwrap_or_else(|| panic!("{family:?} direct search returned None"));
+        let BestFamilySplit::Composed(facade) = facade else {
+            panic!("{family:?} should return a composed split");
+        };
+        assert_eq!(facade, direct);
+        assert_eq!(facade.candidate.score, direct.candidate.score);
+    }
+
+    #[test]
+    fn best_family_split_dispatches_conjui_and_matches_direct_search() {
+        let ds = tie_dataset();
+        let config = FamilySearchConfig {
+            family: LanguageFamily::ConjUI,
+            max_arity: 2,
+            min_samples_leaf: 1,
+        };
+        assert_composed_score_matches(
+            LanguageFamily::ConjUI,
+            best_family_split(&ds, config).unwrap(),
+            best_conjui_split_with_min_leaf(&ds, 2, 1).unwrap(),
+        );
+    }
+
+    #[test]
+    fn best_family_split_dispatches_horn_and_matches_direct_search() {
+        let ds = horn_search_dataset();
+        let config = FamilySearchConfig {
+            family: LanguageFamily::Horn,
+            max_arity: 2,
+            min_samples_leaf: 1,
+        };
+        assert_composed_score_matches(
+            LanguageFamily::Horn,
+            best_family_split(&ds, config).unwrap(),
+            best_horn_split_with_min_leaf(&ds, 2, 1).unwrap(),
+        );
+    }
+
+    #[test]
+    fn best_family_split_dispatches_antihorn_and_matches_direct_search() {
+        let ds = antihorn_search_dataset();
+        let config = FamilySearchConfig {
+            family: LanguageFamily::AntiHorn,
+            max_arity: 2,
+            min_samples_leaf: 1,
+        };
+        assert_composed_score_matches(
+            LanguageFamily::AntiHorn,
+            best_family_split(&ds, config).unwrap(),
+            best_antihorn_split_with_min_leaf(&ds, 2, 1).unwrap(),
+        );
+    }
+
+    #[test]
+    fn best_family_split_dispatches_affine_and_matches_direct_search() {
+        let ds = xor_search_dataset();
+        let config = FamilySearchConfig {
+            family: LanguageFamily::Affine,
+            max_arity: 2,
+            min_samples_leaf: 1,
+        };
+        assert_composed_score_matches(
+            LanguageFamily::Affine,
+            best_family_split(&ds, config).unwrap(),
+            best_affine_split_with_min_leaf(&ds, 2, 1).unwrap(),
+        );
+    }
+
+    #[test]
+    fn best_family_split_dispatches_square2cnf_and_matches_direct_search() {
+        let ds = square_search_dataset();
+        let config = FamilySearchConfig {
+            family: LanguageFamily::Square2CNF,
+            max_arity: 2,
+            min_samples_leaf: 1,
+        };
+        let facade = best_family_split(&ds, config).unwrap().unwrap();
+        let direct = best_square2cnf_split_with_min_leaf(&ds, 2, 1)
+            .unwrap()
+            .unwrap();
+        let BestFamilySplit::Square2CNF(facade) = facade else {
+            panic!("Square2CNF should return a Square2CNF split");
+        };
+        assert_eq!(facade, direct);
+        assert_eq!(facade.candidate.score, direct.candidate.score);
+    }
+
+    #[test]
+    fn best_family_split_propagates_none_and_errors() {
+        let ds = no_gain_dataset();
+        let config = FamilySearchConfig {
+            family: LanguageFamily::ConjUI,
+            max_arity: 1,
+            min_samples_leaf: 1,
+        };
+        assert!(best_family_split(&ds, config).unwrap().is_none());
+
+        let strict_config = FamilySearchConfig {
+            family: LanguageFamily::ConjUI,
+            max_arity: 1,
+            min_samples_leaf: 3,
+        };
+        assert!(best_family_split(&tie_dataset(), strict_config)
+            .unwrap()
+            .is_none());
+
+        let invalid_config = FamilySearchConfig {
+            family: LanguageFamily::Square2CNF,
+            max_arity: 0,
+            min_samples_leaf: 1,
+        };
+        assert!(best_family_split(&square_search_dataset(), invalid_config).is_err());
     }
 }

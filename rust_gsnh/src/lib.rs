@@ -24,7 +24,8 @@ pub use bitset::BitSet;
 pub use conjui::best_conjui_split_with_min_leaf;
 pub use data::{Dataset, DatasetError, FeatureSummary};
 pub use family::{
-    evaluate_fixed_predicate_with_min_leaf, EvaluatedFixedPredicate, FixedPredicate, LanguageFamily,
+    best_family_split, evaluate_fixed_predicate_with_min_leaf, BestFamilySplit,
+    EvaluatedFixedPredicate, FamilySearchConfig, FixedPredicate, LanguageFamily,
 };
 pub use horn::best_horn_split_with_min_leaf;
 pub use predicates::{ComparisonOp, ComposedPredicate, MaskOp, ThresholdPredicate};

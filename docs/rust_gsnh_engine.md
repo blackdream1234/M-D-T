@@ -475,6 +475,33 @@ equivalence remains a TODO until PyO3 bindings exist.
 This search does not implement three-clause enumeration, theorem-certificate
 checking, benchmark integration, full-family search, or tree recursion.
 
+
+## Unified family-search facade status
+
+`rust_gsnh/src/family.rs` now provides `FamilySearchConfig`,
+`BestFamilySplit`, and `best_family_split` for searching exactly one selected
+language family. This is separate from the fixed-predicate facade: callers pass
+a family choice, a `max_arity`, and `min_samples_leaf`, and the facade dispatches
+to one existing deterministic family search function. It does not compare across
+families.
+
+Supported families are the Rust `LanguageFamily` variants already used by the
+fixed facade: `ConjUI`, `Horn`, `AntiHorn`, `Affine`, and `Square2CNF`. For
+ConjUI, Horn, AntiHorn, and Affine, `max_arity` means maximum number of threshold
+literals. For Square2CNF, `max_arity` means maximum number of two-literal OR
+clauses.
+
+`BestFamilySplit::Composed` wraps the `EvaluatedComposedPredicate` result used
+by ConjUI, Horn, AntiHorn, and Affine/XOR. `BestFamilySplit::Square2CNF` wraps
+the `EvaluatedSquare2CNFPredicate` result used by Square2CNF. Errors and
+`Ok(None)` are propagated directly from the selected family search, including
+invalid arity, NaN threshold-generation errors, min-leaf rejection, and
+nonpositive-gain rejection.
+
+Unsupported Python family names remain intentionally unsupported in Rust:
+`Any`, `BestPerNode`, and legacy `SquareCNF`. The facade is not all-family
+search, not BestPerNode, not benchmark integration, and not tree recursion.
+
 ## Build and test
 
 ```bash
@@ -490,8 +517,8 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Implement a unified best-family search facade that dispatches exactly one selected family search function by `LanguageFamily`.
-2. Add small-tree prediction equivalence only after one-family search is stable.
+1. Implement a shallow one-node Rust tree/stump builder that calls `best_family_split` for one selected family.
+2. Add small-tree prediction equivalence only after the stump builder is stable.
 3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"` after Rust search parity is established.
 4. Benchmarks with speedup ratios only after correctness parity is stable.
@@ -508,7 +535,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - Square2CNF theorem certificates are still not implemented in Rust.
 - Affine/XOR search is threshold-literal XOR search only; there is no GF(2)
   basis construction, theorem certificate checker, or benchmark integration.
-- No full Rust split search beyond deterministic 1D threshold candidates, arity <= 2 ConjUI candidates, arity <= 2 Horn candidates, arity <= 2 AntiHorn candidates, arity <= 2 Affine/XOR candidates, and one-/two-clause Square2CNF candidates yet.
+- No recursive Rust tree learning yet; family search is available only through one selected-family facade and the underlying deterministic family searches.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
   `*_with_min_leaf` APIs with the tree's configured value.
@@ -521,4 +548,4 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement a unified best-family search facade that can call exactly one selected family search function by `LanguageFamily`. Keep theorem certificates out of Rust and do not implement tree recursion yet.
+Implement a shallow one-node Rust tree/stump builder that calls `best_family_split` for one selected family and returns either a leaf or a root split with two leaves. Keep theorem certificates out of Rust and do not implement recursive tree learning yet.
