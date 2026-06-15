@@ -24,6 +24,7 @@ pub use data::{Dataset, DatasetError, FeatureSummary};
 pub use family::{
     evaluate_fixed_predicate_with_min_leaf, EvaluatedFixedPredicate, FixedPredicate, LanguageFamily,
 };
+pub use horn::best_horn_split_with_min_leaf;
 pub use predicates::{ComparisonOp, ComposedPredicate, MaskOp, ThresholdPredicate};
 pub use scoring::{
     class_counts, count_negative, count_positive, entropy, gain_ratio, information_gain,
