@@ -59,10 +59,12 @@ layers are:
   filtering, information gain, and BIC-style penalized gain.
 - Fixed Affine/XOR composed-candidate evaluation for supplied XOR predicates,
   without search enumeration or theorem certificates.
+- Fixed Horn and AntiHorn OR-clause candidate evaluation for supplied predicates,
+  including Python-matched polarity validation.
 - Rust unit/integration tests covering shape validation, label validation,
   row-major layout, feature summaries, `.dl8` parsing contract, bitset mask
   behavior, predicate mask behavior, composed mask behavior, scoring formulas,
-  ConjUI/Affine fixed-candidate evaluation, and 1D threshold search.
+  ConjUI/Affine/Horn/AntiHorn fixed-candidate evaluation, and 1D threshold search.
 
 ## Bitset module status
 
@@ -109,12 +111,14 @@ Python representation uses XOR / odd parity.  Empty composed predicates return
 an error, matching Python's `GSNHPredicate` arity check that rejects zero
 literals.
 
-This step intentionally implements only mask composition, not language-family
-validation or theorem certification.  The Rust layer does not yet enforce Horn
-polarity limits, AntiHorn polarity limits, Square2CNF's conjunction of binary
-disjunctive clauses, or Affine/GF(2) certificate rules.  The tests manually
-compute Python-equivalent AND, OR, and XOR masks for two and three literals,
-invalid literal handling, deterministic sorted indices, class counts, and
+This generic mask-composition layer intentionally remains separate from
+family-specific validation and theorem certification.  Horn and AntiHorn
+polarity validation is now enforced by the fixed-candidate evaluators in
+`search.rs`, while `ComposedPredicate` itself still just composes masks.
+Square2CNF's conjunction of binary disjunctive clauses and Affine/GF(2)
+certificate rules remain outside this generic layer.  The tests manually compute
+Python-equivalent AND, OR, and XOR masks for two and three literals, invalid
+literal handling, deterministic sorted indices, class counts, and
 min-leaf-style branch-size checks.  Automated Python-vs-Rust composed-predicate
 equivalence remains a TODO for the PyO3 binding phase.
 
@@ -158,10 +162,10 @@ raw/penalized gains are nonpositive return `Ok(None)`, matching Python's
 candidate-rejection behavior.
 
 This is not a search enumerator: callers must provide a concrete ConjUI
-predicate.  Horn, AntiHorn, Square2CNF, and Affine certificate/search support
-remain unsupported in Rust.  In particular, this step does not implement Horn or
-AntiHorn polarity validation, Square2CNF clause structure, Affine/GF(2)
-certificates, tree recursion, PyO3 bindings, or benchmark integration.
+predicate.  Square2CNF and Affine certificate/search support remain unsupported
+in Rust.  In particular, this step does not implement Square2CNF clause
+structure, Affine/GF(2) certificates, tree recursion, PyO3 bindings, or
+benchmark integration.
 
 
 ## Affine/XOR fixed-candidate evaluation status
@@ -178,6 +182,26 @@ nonpositive raw/penalized gains return `Ok(None)`.
 This is only fixed XOR mask evaluation and scoring.  Rust still does not
 enumerate Affine predicates, construct GF(2) bases, check Affine certificates,
 validate theorem conditions, or integrate Affine with tree search or benchmarks.
+
+## Horn and AntiHorn fixed-candidate evaluation status
+
+`rust_gsnh/src/search.rs` now includes
+`evaluate_horn_candidate_with_min_leaf` and
+`evaluate_antihorn_candidate_with_min_leaf` for supplied fixed OR-clause
+predicates.  Both functions accept only `MaskOp::Or`, evaluate OR masks through
+`ComposedPredicate`, form the outside mask as the complement, enforce
+`min_samples_leaf` on both branches, compute inside/outside `ClassCounts`,
+compute Python-matched information gain, and apply the existing BIC-style
+`penalized_gain` with the caller-provided arity.  Invalid branch sizes and
+nonpositive raw/penalized gains return `Ok(None)`.
+
+The polarity rules match Python `GSNHPredicate.__post_init__` and literal
+polarity conventions: `>=` and `>` are positive directions, while `<` and `<=`
+are negative directions.  Horn accepts at most one positive literal in the OR
+clause; AntiHorn accepts at most one negative literal.  Violations return clear
+`Err` values before scoring.  This step does not enumerate Horn/AntiHorn
+candidates, validate theorem certificates, or integrate either family with Rust
+tree search.
 
 ## Deterministic 1D candidate-generation status
 
@@ -223,7 +247,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add fixed-predicate evaluation for Horn/AntiHorn OR semantics after explicit polarity-rule inspection.
+1. Add Square2CNF fixed-predicate evaluation as an explicit clause structure.
 2. Language-family predicate validation one family at a time.
 3. Small-tree prediction equivalence.
 4. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
@@ -233,9 +257,9 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 ## Known limitations
 
 - No PyO3 binding yet.
-- No Rust language-family validators beyond generic threshold-mask composition yet.
-- No composed-predicate enumeration/search yet; Rust only evaluates supplied ConjUI or Affine/XOR predicates.
-- No fixed-candidate evaluators for Horn, AntiHorn, or Square2CNF yet.
+- No composed-predicate enumeration/search yet; Rust only evaluates supplied ConjUI, Affine/XOR, Horn, and AntiHorn predicates.
+- Horn and AntiHorn are fixed-predicate evaluators only; there is no Rust Horn/AntiHorn search, theorem certificate checker, or benchmark integration.
+- No fixed-candidate evaluator for Square2CNF yet.
 - Affine/XOR evaluation is mask/scoring only; there is no Affine enumeration,
   GF(2) basis construction, theorem certificate checker, or benchmark integration.
 - No full Rust split search beyond deterministic 1D threshold candidates yet.
@@ -251,6 +275,6 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement fixed-predicate evaluation for Horn/AntiHorn OR semantics with
-explicit polarity-rule inspection.  Do not implement search or tree recursion
-until family-level predicate masks and scores are stable.
+Implement Square2CNF fixed-predicate evaluation as a separate clause structure
+only after Horn/AntiHorn fixed evaluation is stable.  Do not implement search or
+tree recursion until family-level predicate masks and scores are stable.

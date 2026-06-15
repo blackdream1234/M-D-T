@@ -227,6 +227,58 @@ pub fn evaluate_affine_candidate_with_min_leaf(
     )
 }
 
+/// Evaluate a fixed Horn OR-clause predicate with Python-matched scoring.
+///
+/// This helper is intentionally Horn-only: `predicate.op` must be `MaskOp::Or`
+/// and the literals must satisfy Python's Horn polarity rule of at most one
+/// positive literal. Positive threshold/comparison directions are `>=` and `>`,
+/// while negative directions are `<` and `<=`.
+pub fn evaluate_horn_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: ComposedPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+) -> Result<Option<EvaluatedComposedPredicate>, String> {
+    if predicate.op != MaskOp::Or {
+        return Err("Horn composed candidate evaluation requires Or".to_string());
+    }
+    validate_horn_literals(&predicate.literals)?;
+    evaluate_fixed_composed_candidate_with_expected_op(
+        dataset,
+        predicate,
+        min_samples_leaf,
+        arity,
+        MaskOp::Or,
+        "Horn",
+    )
+}
+
+/// Evaluate a fixed AntiHorn OR-clause predicate with Python-matched scoring.
+///
+/// This helper is intentionally AntiHorn-only: `predicate.op` must be
+/// `MaskOp::Or` and the literals must satisfy Python's AntiHorn polarity rule
+/// of at most one negative literal. Positive threshold/comparison directions are
+/// `>=` and `>`, while negative directions are `<` and `<=`.
+pub fn evaluate_antihorn_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: ComposedPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+) -> Result<Option<EvaluatedComposedPredicate>, String> {
+    if predicate.op != MaskOp::Or {
+        return Err("AntiHorn composed candidate evaluation requires Or".to_string());
+    }
+    validate_antihorn_literals(&predicate.literals)?;
+    evaluate_fixed_composed_candidate_with_expected_op(
+        dataset,
+        predicate,
+        min_samples_leaf,
+        arity,
+        MaskOp::Or,
+        "AntiHorn",
+    )
+}
+
 fn evaluate_fixed_composed_candidate_with_expected_op(
     dataset: &Dataset,
     predicate: ComposedPredicate,
@@ -276,6 +328,46 @@ fn evaluate_fixed_composed_candidate_with_expected_op(
         inside_mask,
         outside_mask,
     }))
+}
+
+fn validate_horn_literals(literals: &[ThresholdPredicate]) -> Result<(), String> {
+    let n_positive = literals
+        .iter()
+        .filter(|literal| is_positive_literal(literal))
+        .count();
+    if n_positive > 1 {
+        return Err(format!(
+            "Horn polarity violation: {n_positive} positive literals; max allowed is 1"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_antihorn_literals(literals: &[ThresholdPredicate]) -> Result<(), String> {
+    let n_negative = literals
+        .iter()
+        .filter(|literal| is_negative_literal(literal))
+        .count();
+    if n_negative > 1 {
+        return Err(format!(
+            "AntiHorn polarity violation: {n_negative} negative literals; max allowed is 1"
+        ));
+    }
+    Ok(())
+}
+
+fn is_positive_literal(predicate: &ThresholdPredicate) -> bool {
+    matches!(
+        predicate.op,
+        ComparisonOp::GreaterEqual | ComparisonOp::GreaterThan
+    )
+}
+
+fn is_negative_literal(predicate: &ThresholdPredicate) -> bool {
+    matches!(
+        predicate.op,
+        ComparisonOp::LessThan | ComparisonOp::LessEqual
+    )
 }
 
 fn evaluate_1d_candidate_parts(
@@ -1092,6 +1184,396 @@ mod tests {
             let err = evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 1).unwrap_err();
             assert!(err.contains("Xor"));
         }
+    }
+
+    fn horn_antihorn_or_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0, 0.0],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 1.0],
+                vec![1.0, 0.0, 0.0],
+            ],
+            vec![0, 1, 1, 1],
+        )
+        .unwrap()
+    }
+
+    fn valid_horn_predicate() -> ComposedPredicate {
+        ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        }
+    }
+
+    fn valid_antihorn_predicate() -> ComposedPredicate {
+        ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn evaluates_valid_horn_or_candidate() {
+        let ds = horn_antihorn_or_dataset();
+        let pred = valid_horn_predicate();
+        let evaluated = evaluate_horn_candidate_with_min_leaf(&ds, pred.clone(), 1, 2)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2, 3]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0]);
+        assert_eq!(evaluated.candidate.predicate, pred);
+        assert_eq!(
+            evaluated.candidate.inside_counts,
+            ClassCounts {
+                positive: 3,
+                negative: 0
+            }
+        );
+        assert_eq!(
+            evaluated.candidate.outside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 1
+            }
+        );
+        let expected_score = penalized_gain(0.8112781244591328, 2, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn evaluates_valid_antihorn_or_candidate() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0, 0.0],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 1.0],
+                vec![1.0, 0.0, 0.0],
+            ],
+            vec![1, 1, 0, 1],
+        )
+        .unwrap();
+        let pred = valid_antihorn_predicate();
+        let evaluated = evaluate_antihorn_candidate_with_min_leaf(&ds, pred.clone(), 1, 2)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![0, 1, 3]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![2]);
+        assert_eq!(evaluated.candidate.predicate, pred);
+        assert_eq!(
+            evaluated.candidate.inside_counts,
+            ClassCounts {
+                positive: 3,
+                negative: 0
+            }
+        );
+        assert_eq!(
+            evaluated.candidate.outside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 1
+            }
+        );
+        assert!(evaluated.candidate.score > 0.0);
+    }
+
+    #[test]
+    fn evaluates_three_literal_horn_and_antihorn_or_candidates() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0, 1.0],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 1.0],
+                vec![0.0, 1.0, 0.0],
+                vec![1.0, 0.0, 0.0],
+            ],
+            vec![0, 1, 1, 1, 1],
+        )
+        .unwrap();
+        let horn_pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 2,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+        let horn_eval = evaluate_horn_candidate_with_min_leaf(&ds, horn_pred, 1, 3)
+            .unwrap()
+            .unwrap();
+        assert_eq!(horn_eval.inside_mask.indices(), vec![1, 2, 3, 4]);
+        assert_eq!(horn_eval.outside_mask.indices(), vec![0]);
+        assert_eq!(horn_eval.candidate.inside_counts.positive, 4);
+
+        let anti_ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0, 1.0],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 1.0],
+                vec![0.0, 1.0, 0.0],
+                vec![1.0, 0.0, 0.0],
+            ],
+            vec![1, 1, 1, 1, 0],
+        )
+        .unwrap();
+        let antihorn_pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 2,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        };
+        let anti_eval = evaluate_antihorn_candidate_with_min_leaf(&anti_ds, antihorn_pred, 1, 3)
+            .unwrap()
+            .unwrap();
+        assert_eq!(anti_eval.inside_mask.indices(), vec![0, 1, 2, 3]);
+        assert_eq!(anti_eval.outside_mask.indices(), vec![4]);
+    }
+
+    #[test]
+    fn horn_rejects_invalid_polarity_combination() {
+        let ds = horn_antihorn_or_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterThan,
+                },
+            ],
+        };
+
+        assert!(evaluate_horn_candidate_with_min_leaf(&ds, pred, 1, 2)
+            .unwrap_err()
+            .contains("Horn polarity violation"));
+    }
+
+    #[test]
+    fn antihorn_rejects_invalid_polarity_combination() {
+        let ds = horn_antihorn_or_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessEqual,
+                },
+            ],
+        };
+
+        assert!(evaluate_antihorn_candidate_with_min_leaf(&ds, pred, 1, 2)
+            .unwrap_err()
+            .contains("AntiHorn polarity violation"));
+    }
+
+    #[test]
+    fn horn_and_antihorn_reject_non_or_operators() {
+        let ds = horn_antihorn_or_dataset();
+        for op in [MaskOp::And, MaskOp::Xor] {
+            let pred = ComposedPredicate {
+                op,
+                literals: vec![ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                }],
+            };
+            assert!(
+                evaluate_horn_candidate_with_min_leaf(&ds, pred.clone(), 1, 1)
+                    .unwrap_err()
+                    .contains("requires Or")
+            );
+            assert!(evaluate_antihorn_candidate_with_min_leaf(&ds, pred, 1, 1)
+                .unwrap_err()
+                .contains("requires Or"));
+        }
+    }
+
+    #[test]
+    fn horn_antihorn_reject_nonpositive_gain() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0],
+                vec![1.0, 1.0],
+                vec![0.0, 0.0],
+                vec![1.0, 0.0],
+            ],
+            vec![0, 0, 1, 1],
+        )
+        .unwrap();
+
+        assert!(
+            evaluate_horn_candidate_with_min_leaf(&ds, valid_horn_predicate(), 1, 2)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            evaluate_antihorn_candidate_with_min_leaf(&ds, valid_antihorn_predicate(), 1, 2)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn horn_antihorn_min_leaf_rejections_and_zero_behavior() {
+        let ds = horn_antihorn_or_dataset();
+        assert!(
+            evaluate_horn_candidate_with_min_leaf(&ds, valid_horn_predicate(), 2, 2)
+                .unwrap()
+                .is_none()
+        );
+
+        let anti_ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0, 0.0],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 1.0],
+                vec![1.0, 0.0, 0.0],
+            ],
+            vec![1, 1, 0, 1],
+        )
+        .unwrap();
+        assert!(evaluate_antihorn_candidate_with_min_leaf(
+            &anti_ds,
+            valid_antihorn_predicate(),
+            2,
+            2
+        )
+        .unwrap()
+        .is_none());
+
+        let horn_eval = evaluate_horn_candidate_with_min_leaf(&ds, valid_horn_predicate(), 0, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(horn_eval.outside_mask.indices(), vec![0]);
+        let anti_eval =
+            evaluate_antihorn_candidate_with_min_leaf(&anti_ds, valid_antihorn_predicate(), 0, 2)
+                .unwrap()
+                .unwrap();
+        assert_eq!(anti_eval.outside_mask.indices(), vec![2]);
+    }
+
+    #[test]
+    fn horn_antihorn_reject_inside_branch_too_small() {
+        let ds = Dataset::from_rows(
+            vec![vec![1.0], vec![0.0], vec![0.0], vec![0.0]],
+            vec![1, 0, 0, 0],
+        )
+        .unwrap();
+        let pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![ThresholdPredicate {
+                feature_index: 0,
+                threshold: 0.5,
+                op: ComparisonOp::GreaterEqual,
+            }],
+        };
+
+        assert!(
+            evaluate_horn_candidate_with_min_leaf(&ds, pred.clone(), 2, 1)
+                .unwrap()
+                .is_none()
+        );
+        assert!(evaluate_antihorn_candidate_with_min_leaf(&ds, pred, 2, 1)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn horn_antihorn_propagate_invalid_feature_and_empty_predicate_errors() {
+        let ds = horn_antihorn_or_dataset();
+        let invalid_feature = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![ThresholdPredicate {
+                feature_index: 99,
+                threshold: 0.5,
+                op: ComparisonOp::GreaterEqual,
+            }],
+        };
+        assert!(
+            evaluate_horn_candidate_with_min_leaf(&ds, invalid_feature.clone(), 1, 1)
+                .unwrap_err()
+                .contains("out of range")
+        );
+        assert!(
+            evaluate_antihorn_candidate_with_min_leaf(&ds, invalid_feature, 1, 1)
+                .unwrap_err()
+                .contains("out of range")
+        );
+
+        let empty = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: Vec::new(),
+        };
+        assert!(
+            evaluate_horn_candidate_with_min_leaf(&ds, empty.clone(), 1, 1)
+                .unwrap_err()
+                .contains("at least one")
+        );
+        assert!(evaluate_antihorn_candidate_with_min_leaf(&ds, empty, 1, 1)
+            .unwrap_err()
+            .contains("at least one"));
     }
 
     #[test]
