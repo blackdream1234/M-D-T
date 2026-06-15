@@ -42,6 +42,6 @@ pub use search::{
 };
 
 pub use square_cnf::{
-    evaluate_square2cnf_candidate_with_min_leaf, EvaluatedSquare2CNFPredicate, Square2CNFCandidate,
-    Square2CNFPredicate, Square2Clause,
+    best_square2cnf_split_with_min_leaf, evaluate_square2cnf_candidate_with_min_leaf,
+    EvaluatedSquare2CNFPredicate, Square2CNFCandidate, Square2CNFPredicate, Square2Clause,
 };

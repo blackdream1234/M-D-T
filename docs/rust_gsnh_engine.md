@@ -229,9 +229,9 @@ Python-matched information gain, and applies the existing BIC-style
 `penalized_gain` with the caller-provided arity.  Invalid branch sizes and
 nonpositive raw/penalized gains return `Ok(None)`.
 
-This step does not enumerate Square2CNF candidates, implement the Python
-`search_square_2cnf` candidate cap or feature-pair pruning, construct theorem
-certificates, integrate with benchmarks, or perform tree recursion.
+Candidate enumeration is documented separately below. Rust still does not
+implement the Python `search_square_2cnf` candidate cap, theorem certificates,
+benchmark integration, or tree recursion.
 
 ## Unified fixed-predicate family facade status
 
@@ -435,6 +435,46 @@ Affine search equivalence remains a TODO until PyO3 bindings exist.
 This search does not implement 3D Affine, GF(2) basis construction, theorem
 certificate checking, benchmark integration, or tree recursion.
 
+
+## Deterministic Square2CNF search status
+
+`rust_gsnh/src/square_cnf.rs` now implements deterministic Square2CNF
+candidate enumeration for `max_clauses = 1` and `max_clauses = 2`. This is
+still candidate search only: it does not build trees, construct theorem
+certificates, bind through PyO3, run in parallel, or integrate with benchmarks.
+
+The inspected Python reference is `src/gsnh_mdt/search/square_2cnf.py` plus
+`Square2CNFPredicate` in `src/gsnh_mdt/literals/predicates.py`. The active
+family name is `Square2CNF` / `LanguageFamily.SQUARE_2CNF`; legacy
+`SquareCNF` is the older ConjUI/box name. Python's active search generates
+threshold literals in feature order with GE before LT, builds binary OR
+clauses from literal pairs `(i, j)` with `i < j`, precomputes clause masks, and
+combines clause pairs as `(clause_a AND clause_b)` with `a < b`. It skips
+identical literals and skips two-clause formulas whose clauses use the exact
+same feature set.
+
+The Rust subset is intentionally exhaustive and deterministic for the midpoint
+threshold literals already used by the Rust engine. It supports one-clause
+predicates because Python `Square2CNFPredicate` accepts 1--3 clauses, and it
+supports two-clause predicates because that is the active paper-style search
+shape. Each clause is exactly two threshold literals and evaluates as OR over
+its literal masks; the predicate evaluates as AND over clause masks.
+
+Scoring and validity are delegated to `evaluate_square2cnf_candidate_with_min_leaf`:
+inside/outside masks are computed from the predicate, both branches must satisfy
+`min_samples_leaf` (`0` disables branch-size rejection), raw information gain is
+computed, and BIC-style `penalized_gain` is applied using the number of clauses
+as the arity. Nonpositive raw or penalized gain returns `Ok(None)`.
+
+Tie-breaking is deterministic: higher score wins; then fewer clauses; then the
+lexicographically smaller clause sequence; inside a clause, literals are ordered
+by feature index, threshold, and the inspected Square2CNF operator order
+(`GreaterEqual` before `LessThan`). Automated Python-vs-Rust Square2CNF search
+equivalence remains a TODO until PyO3 bindings exist.
+
+This search does not implement three-clause enumeration, theorem-certificate
+checking, benchmark integration, full-family search, or tree recursion.
+
 ## Build and test
 
 ```bash
@@ -450,7 +490,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Implement deterministic Square2CNF search as a separate commit while keeping theorem certificates out of Rust.
+1. Implement a unified best-family search facade that dispatches exactly one selected family search function by `LanguageFamily`.
 2. Add small-tree prediction equivalence only after one-family search is stable.
 3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"` after Rust search parity is established.
@@ -462,12 +502,13 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - ConjUI enumeration/search exists only for arity 1 and arity 2; there is no 3D ConjUI Rust search yet.
 - Horn enumeration/search exists only for arity 1 and arity 2; there is no 3D Horn Rust search yet.
 - AntiHorn enumeration/search exists only for arity 1 and arity 2; there is no 3D AntiHorn Rust search yet.
-- Affine/XOR enumeration/search exists only for arity 1 and arity 2; there is no 3D Affine Rust search yet. Square2CNF remains a fixed-predicate evaluator only; it is not enumerated/searched in Rust yet.
+- Affine/XOR enumeration/search exists only for arity 1 and arity 2; there is no 3D Affine Rust search yet.
+- Square2CNF enumeration/search exists only for one- and two-clause predicates; there is no 3-clause Square2CNF Rust search yet.
 - Horn and AntiHorn have no Rust theorem certificate checker or benchmark integration.
-- Square2CNF fixed-candidate evaluation exists, but Square2CNF candidate enumeration/search and theorem certificates are still not implemented in Rust.
+- Square2CNF theorem certificates are still not implemented in Rust.
 - Affine/XOR search is threshold-literal XOR search only; there is no GF(2)
   basis construction, theorem certificate checker, or benchmark integration.
-- No full Rust split search beyond deterministic 1D threshold candidates, arity <= 2 ConjUI candidates, arity <= 2 Horn candidates, arity <= 2 AntiHorn candidates, and arity <= 2 Affine/XOR candidates yet.
+- No full Rust split search beyond deterministic 1D threshold candidates, arity <= 2 ConjUI candidates, arity <= 2 Horn candidates, arity <= 2 AntiHorn candidates, arity <= 2 Affine/XOR candidates, and one-/two-clause Square2CNF candidates yet.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
   `*_with_min_leaf` APIs with the tree's configured value.
@@ -480,4 +521,4 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement deterministic Square2CNF search as a separate commit. Keep theorem certificates out of Rust and do not implement tree recursion yet.
+Implement a unified best-family search facade that can call exactly one selected family search function by `LanguageFamily`. Keep theorem certificates out of Rust and do not implement tree recursion yet.
