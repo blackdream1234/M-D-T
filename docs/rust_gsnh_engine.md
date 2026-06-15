@@ -362,6 +362,39 @@ lexicographically smaller literal sequence by feature index, threshold, and
 operator order (`LessThan` before `GreaterEqual`).  Automated Python-vs-Rust
 Horn search equivalence remains a TODO until PyO3 bindings exist.
 
+## Deterministic AntiHorn search status
+
+`rust_gsnh/src/antihorn.rs` now implements deterministic AntiHorn enumeration
+up to arity 2.  This is still not tree recursion and does not search Affine,
+Square2CNF, or benchmark-level method combinations.
+
+The matched Python reference is `src/gsnh_mdt/search/antihorn.py`, the AntiHorn
+branch in `ExpertGSNHTree._search_best_split`, and the polarity tables in
+`src/gsnh_mdt/types.py`.  Python's 2D AntiHorn kernel searches three OR/union
+polarity configurations: GE/GE, GE/LT, and LT/GE.  The omitted LT/LT pattern
+would contain two negative literals and violates the AntiHorn rule.  Python
+applies `min_leaf` to both inside and outside branches before information gain,
+and the builder then applies BIC-style `penalized_gain`.
+
+The Rust subset deliberately supports arity 1 and arity 2 only.  Arity 1
+enumerates one-literal `MaskOp::Or` predicates and matches the existing Rust 1D
+threshold search.  Arity 2 enumerates canonical feature pairs `i < j`, midpoint
+thresholds from `generate_1d_thresholds`, and the three AntiHorn polarity
+configurations in deterministic order: GE/GE, LT/GE, GE/LT.  Every candidate is
+passed through the fixed AntiHorn evaluator, so the at-most-one-negative-literal
+rule is checked again before scoring.
+
+Scoring and validity are shared with the fixed-family layer: raw information
+gain, BIC-style `penalized_gain`, and branch sample-count filtering via
+`min_samples_leaf`.  `min_samples_leaf = 0` disables branch-size rejection,
+matching the existing Rust convention.  If no positive penalized-gain candidate
+survives, the function returns `Ok(None)`.
+
+Tie-breaking is deterministic: higher score wins; then smaller arity; then the
+lexicographically smaller literal sequence by feature index, threshold, and
+operator order (`LessThan` before `GreaterEqual`).  Automated Python-vs-Rust
+AntiHorn search equivalence remains a TODO until PyO3 bindings exist.
+
 ## Build and test
 
 ```bash
@@ -377,7 +410,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Implement deterministic AntiHorn search by mirroring Horn with the AntiHorn at-most-one-negative-literal rule.
+1. Implement deterministic Affine/XOR search as a separate commit while keeping theorem certificates out of Rust.
 2. Add small-tree prediction equivalence only after one-family search is stable.
 3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"` after Rust search parity is established.
@@ -388,12 +421,13 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - No PyO3 binding yet.
 - ConjUI enumeration/search exists only for arity 1 and arity 2; there is no 3D ConjUI Rust search yet.
 - Horn enumeration/search exists only for arity 1 and arity 2; there is no 3D Horn Rust search yet.
-- AntiHorn, Affine/XOR, and Square2CNF remain fixed-predicate evaluators only; they are not enumerated/searched in Rust yet.
+- AntiHorn enumeration/search exists only for arity 1 and arity 2; there is no 3D AntiHorn Rust search yet.
+- Affine/XOR and Square2CNF remain fixed-predicate evaluators only; they are not enumerated/searched in Rust yet.
 - Horn and AntiHorn have no Rust theorem certificate checker or benchmark integration.
 - Square2CNF fixed-candidate evaluation exists, but Square2CNF candidate enumeration/search and theorem certificates are still not implemented in Rust.
 - Affine/XOR evaluation is mask/scoring only; there is no Affine enumeration,
   GF(2) basis construction, theorem certificate checker, or benchmark integration.
-- No full Rust split search beyond deterministic 1D threshold candidates, arity <= 2 ConjUI candidates, and arity <= 2 Horn candidates yet.
+- No full Rust split search beyond deterministic 1D threshold candidates, arity <= 2 ConjUI candidates, arity <= 2 Horn candidates, and arity <= 2 AntiHorn candidates yet.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
   `*_with_min_leaf` APIs with the tree's configured value.
@@ -406,4 +440,4 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement deterministic AntiHorn search as a separate commit by mirroring Horn with the AntiHorn at-most-one-negative-literal rule. Do not implement tree recursion yet.
+Implement deterministic Affine/XOR search as a separate commit. Keep theorem certificates out of Rust and do not implement tree recursion yet.

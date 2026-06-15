@@ -18,6 +18,7 @@ pub mod search;
 pub mod square_cnf;
 pub mod tree;
 
+pub use antihorn::best_antihorn_split_with_min_leaf;
 pub use bitset::BitSet;
 pub use conjui::best_conjui_split_with_min_leaf;
 pub use data::{Dataset, DatasetError, FeatureSummary};
