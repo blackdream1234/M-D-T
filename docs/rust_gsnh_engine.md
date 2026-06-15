@@ -233,6 +233,33 @@ This step does not enumerate Square2CNF candidates, implement the Python
 `search_square_2cnf` candidate cap or feature-pair pruning, construct theorem
 certificates, integrate with benchmarks, or perform tree recursion.
 
+## Unified fixed-predicate family facade status
+
+`rust_gsnh/src/family.rs` now provides the conservative dispatch layer for
+already-constructed fixed predicates.  The Rust `LanguageFamily` enum supports
+only the families that have fixed evaluators today: `Horn`, `AntiHorn`,
+`ConjUI`, `Affine`, and `Square2CNF`.  Python families/names outside this
+subset remain unsupported in Rust for now: `Any`, `BestPerNode`, and legacy
+`SquareCNF`.  Legacy Python `SquareCNF` means the old ConjUI/box-style path,
+whereas `Square2CNF` is the paper-style conjunction of two-literal OR clauses.
+
+The facade uses `FixedPredicate::Composed` for Python `GSNHPredicate`-style
+families: ConjUI (`MaskOp::And`), Affine/XOR (`MaskOp::Xor`), Horn
+(`MaskOp::Or` plus Horn polarity validation), and AntiHorn (`MaskOp::Or` plus
+AntiHorn polarity validation).  It uses `FixedPredicate::Square2CNF` only for
+Square2CNF clause structures.
+
+`evaluate_fixed_predicate_with_min_leaf` rejects mismatched shapes early:
+Square2CNF with a composed predicate returns `Err`, and ConjUI/Affine/Horn/
+AntiHorn with a Square2CNF predicate returns `Err`.  Wrong mask operators,
+invalid Horn/AntiHorn polarity, invalid literal feature indices, empty
+predicates, min-leaf rejection, and nonpositive-gain rejection are delegated to
+the existing fixed-family evaluators, so no scoring logic is duplicated.
+
+This is still fixed-predicate evaluation only.  It does not enumerate
+candidates, recurse trees, bind to Python, use parallelism, integrate with
+benchmarks, or construct theorem certificates.
+
 ## Deterministic 1D candidate-generation status
 
 `rust_gsnh/src/search.rs` now implements the smallest safe search layer: scalar
@@ -277,17 +304,16 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add a unified fixed-predicate evaluation facade that dispatches by family name.
-2. Language-family predicate validation/search one family at a time.
-3. Small-tree prediction equivalence.
-4. PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
-   `engine="compare"`.
-5. Benchmarks with speedup ratios only after correctness parity is stable.
+1. Implement deterministic enumeration/search for exactly one composed family, starting with ConjUI.
+2. Add small-tree prediction equivalence only after one-family search is stable.
+3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
+   `engine="compare"` after Rust search parity is established.
+4. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
 
 - No PyO3 binding yet.
-- No composed-predicate enumeration/search yet; Rust only evaluates supplied ConjUI, Affine/XOR, Horn, and AntiHorn predicates.
+- No composed-predicate enumeration/search yet; Rust only evaluates supplied ConjUI, Affine/XOR, Horn, AntiHorn, and Square2CNF predicates through fixed evaluators and the facade.
 - Horn and AntiHorn are fixed-predicate evaluators only; there is no Rust Horn/AntiHorn search, theorem certificate checker, or benchmark integration.
 - Square2CNF fixed-candidate evaluation exists, but Square2CNF candidate enumeration/search and theorem certificates are still not implemented in Rust.
 - Affine/XOR evaluation is mask/scoring only; there is no Affine enumeration,
@@ -305,4 +331,4 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement a unified fixed-predicate evaluation facade that dispatches by family name now that ConjUI, Affine/XOR, Horn, AntiHorn, and Square2CNF fixed evaluators are present.  Do not implement search or tree recursion until family-level predicate masks and scores remain stable behind that facade.
+Implement deterministic enumeration/search for exactly one composed family, starting with ConjUI, now that fixed-family evaluation is unified.  Do not implement tree recursion until one-family search parity is stable.
