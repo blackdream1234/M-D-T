@@ -8,6 +8,7 @@ pub mod affine;
 pub mod antihorn;
 pub mod bitset;
 pub mod cache;
+pub mod conjui;
 pub mod data;
 pub mod family;
 pub mod horn;
@@ -18,6 +19,7 @@ pub mod square_cnf;
 pub mod tree;
 
 pub use bitset::BitSet;
+pub use conjui::best_conjui_split_with_min_leaf;
 pub use data::{Dataset, DatasetError, FeatureSummary};
 pub use family::{
     evaluate_fixed_predicate_with_min_leaf, EvaluatedFixedPredicate, FixedPredicate, LanguageFamily,

@@ -289,6 +289,46 @@ Rust tests whose expected thresholds, masks, class counts, leaf-size filtering,
 and scores are computed from the inspected Python conventions.  Automated
 Python-vs-Rust candidate equivalence remains a TODO for the binding phase.
 
+## Deterministic ConjUI search status
+
+`rust_gsnh/src/conjui.rs` now implements the first composed-family search
+layer: deterministic ConjUI enumeration up to arity 2.  This is still not tree
+recursion and does not search Horn, AntiHorn, Affine, or Square2CNF.
+
+The matched Python reference is `src/gsnh_mdt/search/conj_ui.py` plus the
+ConjUI branch in `ExpertGSNHTree._search_best_split`.  Python's optimized
+ConjUI kernels support 2D and 3D box/intersection search with AND semantics,
+all polarity configurations, direct prefix-sum box counts, `min_leaf` filtering
+on both branches before gain computation, raw information gain, and then
+BIC-style `penalized_gain` in the builder.  Legacy `SquareCNF` means this
+ConjUI/box family, not the newer `Square2CNF` clause family.
+
+The Rust subset deliberately starts smaller: arity 1 and arity 2 only.  Arity 1
+enumerates one-literal `MaskOp::And` predicates and matches the existing Rust
+1D threshold search.  Arity 2 enumerates canonical feature pairs `i < j`,
+midpoint thresholds from `generate_1d_thresholds`, and the four Python ConjUI
+polarity configurations in deterministic order: LT/LT, LT/GE, GE/LT, GE/GE.
+This exhaustive mask-based implementation is simpler than Python's prefix-sum
+kernel but represents the same small deterministic candidate set for the Rust
+midpoint-threshold subset.
+
+Candidates are scored only through the existing fixed ConjUI evaluator, so the
+score remains raw information gain followed by BIC-style `penalized_gain`, and
+`min_samples_leaf` uses the same branch sample-count rule as the fixed-family
+layer.  `min_samples_leaf = 0` disables branch-size rejection, matching the
+existing Rust convention.  If no positive penalized-gain candidate survives,
+the function returns `Ok(None)`.
+
+Tie-breaking is deterministic: higher score wins; then smaller arity; then the
+lexicographically smaller literal sequence by feature index, threshold, and
+operator order (`LessThan` before `GreaterEqual`).  This mirrors Python's
+first-best deterministic scan where feasible while making ties explicit for the
+standalone Rust subset.
+
+Automated Python-vs-Rust ConjUI search equivalence remains a TODO until PyO3
+bindings exist.  Current tests use small deterministic datasets with manually
+computed masks, counts, and scores from the inspected Python semantics.
+
 ## Build and test
 
 ```bash
@@ -304,7 +344,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Implement deterministic enumeration/search for exactly one composed family, starting with ConjUI.
+1. Implement deterministic search for Horn or AntiHorn one family at a time, after ConjUI search parity remains stable.
 2. Add small-tree prediction equivalence only after one-family search is stable.
 3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"` after Rust search parity is established.
@@ -313,12 +353,13 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 ## Known limitations
 
 - No PyO3 binding yet.
-- No composed-predicate enumeration/search yet; Rust only evaluates supplied ConjUI, Affine/XOR, Horn, AntiHorn, and Square2CNF predicates through fixed evaluators and the facade.
+- ConjUI enumeration/search exists only for arity 1 and arity 2; there is no 3D ConjUI Rust search yet.
+- Horn, AntiHorn, Affine/XOR, and Square2CNF remain fixed-predicate evaluators only; they are not enumerated/searched in Rust yet.
 - Horn and AntiHorn are fixed-predicate evaluators only; there is no Rust Horn/AntiHorn search, theorem certificate checker, or benchmark integration.
 - Square2CNF fixed-candidate evaluation exists, but Square2CNF candidate enumeration/search and theorem certificates are still not implemented in Rust.
 - Affine/XOR evaluation is mask/scoring only; there is no Affine enumeration,
   GF(2) basis construction, theorem certificate checker, or benchmark integration.
-- No full Rust split search beyond deterministic 1D threshold candidates yet.
+- No full Rust split search beyond deterministic 1D threshold candidates and arity <= 2 ConjUI candidates yet.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
   `*_with_min_leaf` APIs with the tree's configured value.
@@ -331,4 +372,4 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Implement deterministic enumeration/search for exactly one composed family, starting with ConjUI, now that fixed-family evaluation is unified.  Do not implement tree recursion until one-family search parity is stable.
+Implement deterministic search for Horn or AntiHorn one family at a time after ConjUI search parity remains stable. Do not implement tree recursion yet.
