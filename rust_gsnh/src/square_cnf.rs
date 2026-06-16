@@ -1,0 +1,778 @@
+//! Square2CNF fixed-predicate mask evaluation for the incremental Rust engine.
+//!
+//! Python remains the reference/oracle.  This module mirrors Python
+//! `Square2CNFPredicate` mask semantics only: a predicate is a conjunction of
+//! one to three two-literal disjunctive clauses, `(a OR b) AND ...`.  It does
+//! It also includes a small deterministic candidate search for one- and two-clause
+//! predicates. It does not build theorem certificates or perform tree recursion.
+
+use crate::{
+    class_counts, generate_1d_thresholds, information_gain, negative_label_mask, penalized_gain,
+    positive_label_mask, BitSet, ClassCounts, ComparisonOp, Dataset, ThresholdPredicate,
+};
+use std::cmp::Ordering;
+
+/// One Square2CNF clause `(left OR right)`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Square2Clause {
+    pub left: ThresholdPredicate,
+    pub right: ThresholdPredicate,
+}
+
+impl Square2Clause {
+    /// Evaluate this clause as the union of its two literal masks.
+    pub fn evaluate_mask(&self, dataset: &Dataset) -> Result<BitSet, String> {
+        let left = self.left.evaluate_mask(dataset)?;
+        let right = self.right.evaluate_mask(dataset)?;
+        left.union(&right)
+    }
+}
+
+/// Python-compatible Square2CNF predicate: conjunction of 2-literal OR clauses.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Square2CNFPredicate {
+    pub clauses: Vec<Square2Clause>,
+}
+
+impl Square2CNFPredicate {
+    /// Evaluate the predicate as `AND` over all clause masks.
+    ///
+    /// Empty predicates return an error, matching Python `Square2CNFPredicate`,
+    /// which rejects clause counts outside `1..=3` at construction time.
+    pub fn evaluate_mask(&self, dataset: &Dataset) -> Result<BitSet, String> {
+        validate_square2cnf_clause_count(self.clauses.len())?;
+        let Some((first, rest)) = self.clauses.split_first() else {
+            return Err("Square2CNF predicate must contain 1-3 clauses".to_string());
+        };
+
+        let mut result = first.evaluate_mask(dataset)?;
+        for clause in rest {
+            let clause_mask = clause.evaluate_mask(dataset)?;
+            result = result.intersection(&clause_mask)?;
+        }
+        Ok(result)
+    }
+}
+
+/// A scored fixed Square2CNF candidate.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Square2CNFCandidate {
+    pub predicate: Square2CNFPredicate,
+    pub score: f64,
+    pub inside_counts: ClassCounts,
+    pub outside_counts: ClassCounts,
+}
+
+/// Evaluated Square2CNF predicate plus inside/outside row masks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EvaluatedSquare2CNFPredicate {
+    pub candidate: Square2CNFCandidate,
+    pub inside_mask: BitSet,
+    pub outside_mask: BitSet,
+}
+
+/// Evaluate and score one supplied Square2CNF predicate.
+///
+/// This function mirrors Python fixed-candidate behavior: evaluate the mask,
+/// form the outside branch as the complement, enforce `min_samples_leaf` on
+/// both branches, compute information gain, then apply BIC-style
+/// `penalized_gain` with the caller-provided arity.  Invalid branch sizes and
+/// nonpositive raw/penalized gains return `Ok(None)`.
+pub fn evaluate_square2cnf_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: Square2CNFPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+) -> Result<Option<EvaluatedSquare2CNFPredicate>, String> {
+    validate_square2cnf_clause_count(predicate.clauses.len())?;
+
+    let inside_mask = predicate.evaluate_mask(dataset)?;
+    let outside_mask = inside_mask.complement();
+    if inside_mask.count_ones() < min_samples_leaf || outside_mask.count_ones() < min_samples_leaf {
+        return Ok(None);
+    }
+
+    let positive_mask = positive_label_mask(dataset);
+    let negative_mask = negative_label_mask(dataset);
+    let parent_counts = class_counts(
+        &BitSet::with_all(dataset.n_samples()),
+        &positive_mask,
+        &negative_mask,
+    )?;
+    let inside_counts = class_counts(&inside_mask, &positive_mask, &negative_mask)?;
+    let outside_counts = class_counts(&outside_mask, &positive_mask, &negative_mask)?;
+    let raw_gain = information_gain(parent_counts, inside_counts)?;
+    if raw_gain <= 0.0 {
+        return Ok(None);
+    }
+    let score = penalized_gain(raw_gain, arity, dataset.n_samples());
+    if score <= 0.0 {
+        return Ok(None);
+    }
+
+    Ok(Some(EvaluatedSquare2CNFPredicate {
+        candidate: Square2CNFCandidate {
+            predicate,
+            score,
+            inside_counts,
+            outside_counts,
+        },
+        inside_mask,
+        outside_mask,
+    }))
+}
+
+/// Return the best deterministic Square2CNF split up to `max_clauses`.
+///
+/// Supported values are 1 and 2. `max_clauses = 1` evaluates single binary OR
+/// clauses as degenerate Square2CNF predicates, which Python's predicate class
+/// accepts even though the active Python search focuses on two-clause formulas.
+/// `max_clauses = 2` evaluates both one-clause and two-clause predicates.
+///
+/// Candidate literals are generated by feature index ascending, midpoint
+/// threshold ascending, and Python's inspected Square2CNF literal order:
+/// `GreaterEqual` before `LessThan`. Clauses are canonical two-literal pairs
+/// with pair index order `i < j`. Two-clause predicates use canonical clause
+/// order `c1 < c2`, never repeat the same clause, and skip pairs whose clauses
+/// have the exact same feature set, matching the active Python search's
+/// redundancy guard.
+///
+/// Candidates are evaluated only through the fixed Square2CNF evaluator, so
+/// mask semantics, branch-size filtering, information gain, and BIC-style
+/// penalized gain are shared with the fixed-family parity layer. If no valid
+/// positive candidate exists, returns `Ok(None)`.
+pub fn best_square2cnf_split_with_min_leaf(
+    dataset: &Dataset,
+    max_clauses: usize,
+    min_samples_leaf: usize,
+) -> Result<Option<EvaluatedSquare2CNFPredicate>, String> {
+    if max_clauses == 0 {
+        return Err("Square2CNF search requires max_clauses >= 1".to_string());
+    }
+    if max_clauses > 2 {
+        return Err("Rust Square2CNF search currently supports max_clauses <= 2".to_string());
+    }
+
+    let literals = generate_square2cnf_literals(dataset)?;
+    if literals.len() < 2 {
+        return Ok(None);
+    }
+
+    let clauses = generate_square2cnf_clauses(&literals);
+    if clauses.is_empty() {
+        return Ok(None);
+    }
+
+    let mut best: Option<EvaluatedSquare2CNFPredicate> = None;
+
+    for clause in &clauses {
+        let predicate = Square2CNFPredicate {
+            clauses: vec![clause.clone()],
+        };
+        consider_square2cnf_candidate(dataset, predicate, min_samples_leaf, &mut best)?;
+    }
+
+    if max_clauses >= 2 {
+        for left_idx in 0..clauses.len() {
+            for right_idx in (left_idx + 1)..clauses.len() {
+                if clause_feature_set(&clauses[left_idx]) == clause_feature_set(&clauses[right_idx])
+                {
+                    continue;
+                }
+                let predicate = Square2CNFPredicate {
+                    clauses: vec![clauses[left_idx].clone(), clauses[right_idx].clone()],
+                };
+                consider_square2cnf_candidate(dataset, predicate, min_samples_leaf, &mut best)?;
+            }
+        }
+    }
+
+    Ok(best)
+}
+
+fn generate_square2cnf_literals(dataset: &Dataset) -> Result<Vec<ThresholdPredicate>, String> {
+    let mut literals = Vec::new();
+    for feature_index in 0..dataset.n_features() {
+        for threshold in generate_1d_thresholds(dataset, feature_index)? {
+            for op in [ComparisonOp::GreaterEqual, ComparisonOp::LessThan] {
+                literals.push(ThresholdPredicate {
+                    feature_index,
+                    threshold,
+                    op,
+                });
+            }
+        }
+    }
+    Ok(literals)
+}
+
+fn generate_square2cnf_clauses(literals: &[ThresholdPredicate]) -> Vec<Square2Clause> {
+    let mut clauses = Vec::new();
+    for left_idx in 0..literals.len() {
+        for right_idx in (left_idx + 1)..literals.len() {
+            let left = literals[left_idx];
+            let right = literals[right_idx];
+            if same_literal(left, right) {
+                continue;
+            }
+            clauses.push(Square2Clause { left, right });
+        }
+    }
+    clauses
+}
+
+fn same_literal(left: ThresholdPredicate, right: ThresholdPredicate) -> bool {
+    left.feature_index == right.feature_index
+        && left.threshold == right.threshold
+        && left.op == right.op
+}
+
+fn clause_feature_set(clause: &Square2Clause) -> (usize, Option<usize>) {
+    let a = clause.left.feature_index;
+    let b = clause.right.feature_index;
+    if a == b {
+        (a, None)
+    } else if a < b {
+        (a, Some(b))
+    } else {
+        (b, Some(a))
+    }
+}
+
+fn consider_square2cnf_candidate(
+    dataset: &Dataset,
+    predicate: Square2CNFPredicate,
+    min_samples_leaf: usize,
+    best: &mut Option<EvaluatedSquare2CNFPredicate>,
+) -> Result<(), String> {
+    let arity = predicate.clauses.len();
+    if let Some(candidate) =
+        evaluate_square2cnf_candidate_with_min_leaf(dataset, predicate, min_samples_leaf, arity)?
+    {
+        if should_replace_square2cnf(best.as_ref(), &candidate) {
+            *best = Some(candidate);
+        }
+    }
+    Ok(())
+}
+
+fn should_replace_square2cnf(
+    current: Option<&EvaluatedSquare2CNFPredicate>,
+    candidate: &EvaluatedSquare2CNFPredicate,
+) -> bool {
+    let Some(current) = current else {
+        return true;
+    };
+    const EPS: f64 = 1e-12;
+    let candidate_score = candidate.candidate.score;
+    let current_score = current.candidate.score;
+    if candidate_score > current_score + EPS {
+        return true;
+    }
+    if (candidate_score - current_score).abs() > EPS {
+        return false;
+    }
+
+    let candidate_clauses = &candidate.candidate.predicate.clauses;
+    let current_clauses = &current.candidate.predicate.clauses;
+    if candidate_clauses.len() != current_clauses.len() {
+        return candidate_clauses.len() < current_clauses.len();
+    }
+
+    compare_clause_sequences(candidate_clauses, current_clauses) == Ordering::Less
+}
+
+fn compare_clause_sequences(left: &[Square2Clause], right: &[Square2Clause]) -> Ordering {
+    for (a, b) in left.iter().zip(right.iter()) {
+        match compare_literals(&a.left, &b.left) {
+            Ordering::Equal => {}
+            non_eq => return non_eq,
+        }
+        match compare_literals(&a.right, &b.right) {
+            Ordering::Equal => {}
+            non_eq => return non_eq,
+        }
+    }
+    left.len().cmp(&right.len())
+}
+
+fn compare_literals(left: &ThresholdPredicate, right: &ThresholdPredicate) -> Ordering {
+    match left.feature_index.cmp(&right.feature_index) {
+        Ordering::Equal => {}
+        non_eq => return non_eq,
+    }
+    match left.threshold.total_cmp(&right.threshold) {
+        Ordering::Equal => {}
+        non_eq => return non_eq,
+    }
+    op_rank(left.op).cmp(&op_rank(right.op))
+}
+
+fn op_rank(op: ComparisonOp) -> usize {
+    match op {
+        ComparisonOp::GreaterEqual => 0,
+        ComparisonOp::LessThan => 1,
+        ComparisonOp::LessEqual => 2,
+        ComparisonOp::GreaterThan => 3,
+        ComparisonOp::Equal => 4,
+    }
+}
+
+fn validate_square2cnf_clause_count(n_clauses: usize) -> Result<(), String> {
+    if (1..=3).contains(&n_clauses) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Square2CNF predicate must contain 1-3 clauses, got {n_clauses}"
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{entropy, ComparisonOp};
+
+    const EPS: f64 = 1e-12;
+
+    fn dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0, 0.0, 0.0],
+                vec![1.0, 1.0, 1.0, 1.0],
+                vec![2.0, 2.0, 2.0, 2.0],
+                vec![3.0, 3.0, 3.0, 3.0],
+                vec![4.0, 4.0, 4.0, 4.0],
+                vec![5.0, 5.0, 5.0, 5.0],
+            ],
+            vec![1, 0, 0, 0, 1, 1],
+        )
+        .unwrap()
+    }
+
+    fn ge(feature_index: usize, threshold: f64) -> ThresholdPredicate {
+        ThresholdPredicate {
+            feature_index,
+            threshold,
+            op: ComparisonOp::GreaterEqual,
+        }
+    }
+
+    fn lt(feature_index: usize, threshold: f64) -> ThresholdPredicate {
+        ThresholdPredicate {
+            feature_index,
+            threshold,
+            op: ComparisonOp::LessThan,
+        }
+    }
+
+    fn false_lit() -> ThresholdPredicate {
+        lt(2, -1.0)
+    }
+
+    fn true_lit() -> ThresholdPredicate {
+        ge(2, 0.0)
+    }
+
+    fn one_clause_predicate() -> Square2CNFPredicate {
+        Square2CNFPredicate {
+            clauses: vec![Square2Clause {
+                left: ge(0, 3.0),
+                right: lt(1, 1.0),
+            }],
+        }
+    }
+
+    fn two_clause_predicate() -> Square2CNFPredicate {
+        Square2CNFPredicate {
+            clauses: vec![
+                Square2Clause {
+                    left: ge(0, 1.0),
+                    right: false_lit(),
+                },
+                Square2Clause {
+                    left: lt(1, 4.0),
+                    right: false_lit(),
+                },
+            ],
+        }
+    }
+
+    fn three_clause_predicate() -> Square2CNFPredicate {
+        let mut pred = two_clause_predicate();
+        pred.clauses.push(Square2Clause {
+            left: true_lit(),
+            right: false_lit(),
+        });
+        pred
+    }
+
+    #[test]
+    fn one_clause_evaluates_or_mask() {
+        let ds = dataset();
+        let clause_mask = one_clause_predicate().clauses[0]
+            .evaluate_mask(&ds)
+            .unwrap();
+        assert_eq!(clause_mask.indices(), vec![0, 3, 4, 5]);
+        assert_eq!(
+            one_clause_predicate().evaluate_mask(&ds).unwrap().indices(),
+            vec![0, 3, 4, 5]
+        );
+    }
+
+    #[test]
+    fn two_clauses_evaluate_clause_or_then_final_and_mask() {
+        let ds = dataset();
+        let pred = two_clause_predicate();
+        assert_eq!(
+            pred.clauses[0].evaluate_mask(&ds).unwrap().indices(),
+            vec![1, 2, 3, 4, 5]
+        );
+        assert_eq!(
+            pred.clauses[1].evaluate_mask(&ds).unwrap().indices(),
+            vec![0, 1, 2, 3]
+        );
+        assert_eq!(pred.evaluate_mask(&ds).unwrap().indices(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn three_clauses_are_supported_like_python() {
+        let ds = dataset();
+        let pred = three_clause_predicate();
+        assert_eq!(pred.evaluate_mask(&ds).unwrap().indices(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn square2cnf_candidate_returns_masks_counts_and_positive_score() {
+        let ds = dataset();
+        let pred = two_clause_predicate();
+        let evaluated = evaluate_square2cnf_candidate_with_min_leaf(&ds, pred.clone(), 1, 2)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2, 3]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0, 4, 5]);
+        assert_eq!(evaluated.candidate.predicate, pred);
+        assert_eq!(
+            evaluated.candidate.inside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 3
+            }
+        );
+        assert_eq!(
+            evaluated.candidate.outside_counts,
+            ClassCounts {
+                positive: 3,
+                negative: 0
+            }
+        );
+        let expected_score = penalized_gain(1.0, 2, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn square2cnf_candidate_rejects_nonpositive_gain() {
+        let ds = Dataset::from_rows(
+            vec![vec![0.0], vec![1.0], vec![2.0], vec![3.0]],
+            vec![0, 0, 0, 0],
+        )
+        .unwrap();
+        let pred = Square2CNFPredicate {
+            clauses: vec![Square2Clause {
+                left: lt(0, 2.0),
+                right: lt(0, -1.0),
+            }],
+        };
+        assert!(evaluate_square2cnf_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn square2cnf_candidate_rejects_inside_branch_too_small() {
+        let ds = dataset();
+        let pred = Square2CNFPredicate {
+            clauses: vec![Square2Clause {
+                left: lt(0, 1.0),
+                right: false_lit(),
+            }],
+        };
+        assert!(evaluate_square2cnf_candidate_with_min_leaf(&ds, pred, 2, 1)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn square2cnf_candidate_rejects_outside_branch_too_small() {
+        let ds = dataset();
+        let pred = Square2CNFPredicate {
+            clauses: vec![Square2Clause {
+                left: lt(0, 5.0),
+                right: false_lit(),
+            }],
+        };
+        assert!(evaluate_square2cnf_candidate_with_min_leaf(&ds, pred, 2, 1)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn min_samples_leaf_zero_disables_branch_size_rejection() {
+        let ds = Dataset::from_rows(
+            (0..10).map(|value| vec![value as f64]).collect(),
+            vec![0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        )
+        .unwrap();
+        let pred = Square2CNFPredicate {
+            clauses: vec![Square2Clause {
+                left: lt(0, 0.5),
+                right: lt(0, -1.0),
+            }],
+        };
+        let evaluated = evaluate_square2cnf_candidate_with_min_leaf(&ds, pred, 0, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(evaluated.inside_mask.indices(), vec![0]);
+        assert_eq!(evaluated.outside_mask.count_ones(), 9);
+    }
+
+    #[test]
+    fn invalid_feature_index_propagates_error() {
+        let ds = dataset();
+        let pred = Square2CNFPredicate {
+            clauses: vec![Square2Clause {
+                left: ge(99, 0.0),
+                right: false_lit(),
+            }],
+        };
+        assert!(pred.evaluate_mask(&ds).is_err());
+        assert!(evaluate_square2cnf_candidate_with_min_leaf(&ds, pred, 1, 1).is_err());
+    }
+
+    #[test]
+    fn empty_clause_list_errors_like_python_constructor_rejection() {
+        let ds = dataset();
+        let pred = Square2CNFPredicate { clauses: vec![] };
+        assert!(pred.evaluate_mask(&ds).is_err());
+        assert!(evaluate_square2cnf_candidate_with_min_leaf(&ds, pred, 1, 0).is_err());
+    }
+
+    #[test]
+    fn more_than_three_clauses_errors_like_python_constructor_rejection() {
+        let ds = dataset();
+        let pred = Square2CNFPredicate {
+            clauses: vec![
+                Square2Clause {
+                    left: true_lit(),
+                    right: false_lit(),
+                },
+                Square2Clause {
+                    left: true_lit(),
+                    right: false_lit(),
+                },
+                Square2Clause {
+                    left: true_lit(),
+                    right: false_lit(),
+                },
+                Square2Clause {
+                    left: true_lit(),
+                    right: false_lit(),
+                },
+            ],
+        };
+        assert!(pred.evaluate_mask(&ds).is_err());
+        assert!(evaluate_square2cnf_candidate_with_min_leaf(&ds, pred, 1, 4).is_err());
+    }
+
+    fn or_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![0.0, 1.0],
+                vec![1.0, 0.0],
+                vec![1.0, 1.0],
+            ],
+            vec![0, 1, 1, 1],
+        )
+        .unwrap()
+    }
+
+    fn cnf_dataset() -> Dataset {
+        let mut rows = Vec::new();
+        let mut labels = Vec::new();
+        for a in 0..=1 {
+            for b in 0..=1 {
+                for c in 0..=1 {
+                    for d in 0..=1 {
+                        rows.push(vec![a as f64, b as f64, c as f64, d as f64]);
+                        labels.push(((a == 1 || b == 1) && (c == 1 || d == 1)) as u8);
+                    }
+                }
+            }
+        }
+        Dataset::from_rows(rows, labels).unwrap()
+    }
+
+    fn no_gain_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![1.0, 1.0],
+                vec![2.0, 2.0],
+                vec![3.0, 3.0],
+            ],
+            vec![0, 0, 0, 0],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn max_clauses_one_finds_known_one_clause_or_split() {
+        let ds = or_dataset();
+        let best = best_square2cnf_split_with_min_leaf(&ds, 1, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(best.candidate.predicate.clauses.len(), 1);
+        let clause = &best.candidate.predicate.clauses[0];
+        assert_eq!(clause.left, ge(0, 0.5));
+        assert_eq!(clause.right, ge(1, 0.5));
+        assert_eq!(clause.evaluate_mask(&ds).unwrap().indices(), vec![1, 2, 3]);
+        assert_eq!(best.inside_mask.indices(), vec![1, 2, 3]);
+        assert_eq!(best.outside_mask.indices(), vec![0]);
+        assert_eq!(
+            best.candidate.inside_counts,
+            ClassCounts {
+                positive: 3,
+                negative: 0
+            }
+        );
+        assert_eq!(
+            best.candidate.outside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 1
+            }
+        );
+        let expected_raw = entropy(ClassCounts {
+            positive: 3,
+            negative: 1,
+        });
+        assert!(
+            (best.candidate.score - penalized_gain(expected_raw, 1, ds.n_samples())).abs() < EPS
+        );
+    }
+
+    #[test]
+    fn max_clauses_two_finds_known_two_clause_cnf_split() {
+        let ds = cnf_dataset();
+        let best = best_square2cnf_split_with_min_leaf(&ds, 2, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(best.candidate.predicate.clauses.len(), 2);
+        assert_eq!(
+            best.candidate.predicate.clauses[0],
+            Square2Clause {
+                left: ge(0, 0.5),
+                right: ge(1, 0.5)
+            }
+        );
+        assert_eq!(
+            best.candidate.predicate.clauses[1],
+            Square2Clause {
+                left: ge(2, 0.5),
+                right: ge(3, 0.5)
+            }
+        );
+        assert_eq!(
+            best.inside_mask.indices(),
+            vec![5, 6, 7, 9, 10, 11, 13, 14, 15]
+        );
+        assert_eq!(
+            best.candidate.inside_counts,
+            ClassCounts {
+                positive: 9,
+                negative: 0
+            }
+        );
+        assert_eq!(
+            best.candidate.outside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 7
+            }
+        );
+    }
+
+    #[test]
+    fn min_leaf_no_gain_constant_tie_duplicate_and_error_paths() {
+        let singleton_ds = Dataset::from_rows(
+            vec![vec![0.0], vec![1.0], vec![2.0], vec![3.0]],
+            vec![0, 0, 0, 1],
+        )
+        .unwrap();
+        assert!(best_square2cnf_split_with_min_leaf(&singleton_ds, 1, 2)
+            .unwrap()
+            .is_none());
+        let loose = best_square2cnf_split_with_min_leaf(&singleton_ds, 1, 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(loose.inside_mask.indices(), vec![0, 1, 2]);
+
+        assert!(
+            best_square2cnf_split_with_min_leaf(&no_gain_dataset(), 2, 1)
+                .unwrap()
+                .is_none()
+        );
+
+        let constant_ds = Dataset::from_rows(
+            vec![
+                vec![1.0, 0.0],
+                vec![1.0, 1.0],
+                vec![1.0, 2.0],
+                vec![1.0, 3.0],
+            ],
+            vec![0, 0, 1, 1],
+        )
+        .unwrap();
+        let best = best_square2cnf_split_with_min_leaf(&constant_ds, 2, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(best.candidate.predicate.clauses.len(), 1);
+        assert_eq!(best.candidate.predicate.clauses[0].left.feature_index, 1);
+
+        let first = best_square2cnf_split_with_min_leaf(&or_dataset(), 2, 1)
+            .unwrap()
+            .unwrap();
+        let second = best_square2cnf_split_with_min_leaf(&or_dataset(), 2, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first.candidate.predicate.clauses.len(), 1);
+
+        let two_clause = best_square2cnf_split_with_min_leaf(&cnf_dataset(), 2, 1)
+            .unwrap()
+            .unwrap();
+        let clauses = &two_clause.candidate.predicate.clauses;
+        assert_ne!(clauses[0], clauses[1]);
+        assert_ne!(
+            clause_feature_set(&clauses[0]),
+            clause_feature_set(&clauses[1])
+        );
+    }
+
+    #[test]
+    fn invalid_max_clause_values_and_nan_propagate_errors() {
+        let ds = or_dataset();
+        assert!(best_square2cnf_split_with_min_leaf(&ds, 0, 1).is_err());
+        assert!(best_square2cnf_split_with_min_leaf(&ds, 3, 1).is_err());
+
+        let nan_ds = Dataset::from_rows(
+            vec![vec![0.0, 0.0], vec![f64::NAN, 1.0], vec![1.0, 0.0]],
+            vec![0, 1, 1],
+        )
+        .unwrap();
+        let err = best_square2cnf_split_with_min_leaf(&nan_ds, 2, 1).unwrap_err();
+        assert!(err.contains("NaN"));
+    }
+}
