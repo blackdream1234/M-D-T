@@ -102,3 +102,16 @@ class TestBruteForceConsistency:
             exact = ExactSATSolver.horn_sat(clauses)
             brute = brute_force_sat_verify(clauses, n_vars)
             assert exact == brute, f"Mismatch on {clauses}"
+
+
+def test_two_sat_large_chain_no_recursion_error():
+    clauses = [[(i, False), (i + 1, True)] for i in range(1500)]
+
+    assert ExactSATSolver.two_sat(clauses) is True
+
+
+def test_two_sat_large_unsat_no_recursion_error():
+    clauses = [[(i, False), (i + 1, True)] for i in range(1500)]
+    clauses.extend([[(0, True)], [(0, False)]])
+
+    assert ExactSATSolver.two_sat(clauses) is False
