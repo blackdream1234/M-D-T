@@ -1,27 +1,28 @@
 {
+  "_comment": "Post-theorem-boundary deterministic golden baselines.",
   "lymph": {
     "name": "lymph",
     "seed": 42,
     "max_depth": 5,
     "n_train": 118,
     "n_test": 30,
-    "train_acc": 0.949153,
-    "test_acc": 0.633333,
-    "n_nodes": 13,
-    "n_leaves": 7,
-    "max_depth_reached": 4,
+    "train_acc": 0.974576,
+    "test_acc": 0.733333,
+    "n_nodes": 15,
+    "n_leaves": 8,
+    "max_depth_reached": 5,
     "probas_first3": [
       [
-        0.4545454545454546,
-        0.5454545454545454
+        0.875,
+        0.125
       ],
       [
-        0.020408163265306145,
-        0.9795918367346939
+        0.875,
+        0.125
       ],
       [
-        0.9090909090909091,
-        0.09090909090909091
+        0.09999999999999998,
+        0.9
       ]
     ],
     "root_split": "(x[37] < 0.5000) \u2227 (x[54] < 0.5000)",
@@ -34,8 +35,8 @@
     "max_depth": 5,
     "n_train": 109,
     "n_test": 28,
-    "train_acc": 0.889908,
-    "test_acc": 0.821429,
+    "train_acc": 0.880734,
+    "test_acc": 0.785714,
     "n_nodes": 9,
     "n_leaves": 5,
     "max_depth_reached": 3,
@@ -54,7 +55,7 @@
       ]
     ],
     "root_split": "(x[48] < 0.5000) \u2228 (x[34] < 0.5000)",
-    "axp_len": 2,
+    "axp_len": 1,
     "reproducible": true
   },
   "vote": {
