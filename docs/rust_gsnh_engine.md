@@ -585,6 +585,30 @@ BestPerNode, cross-family comparison, pruning, theorem certificates, benchmark
 integration, PyO3, or parallelism. Automated Python-vs-Rust recursive tree
 equivalence remains a TODO until PyO3 bindings exist.
 
+## Active-subset recursive parity tests
+
+The recursive tree tests now exercise the active-subset invariant directly.
+`dataset_from_mask` preserves `active_mask.indices()` order when copying rows
+and labels into the node-local `Dataset`; tests check row order, feature values,
+and labels. `active_split_masks_from_predicate` evaluates the selected split on
+the original dataset, intersects the true mask with the active mask, and derives
+the false mask as active minus true. Tests assert both branch masks are subsets
+of the active mask, disjoint, and have a union exactly equal to the active mask.
+
+ConjUI-only recursive stabilization tests use explicit `FamilySearchConfig`
+values (`family = ConjUI`, `max_arity = 2` or test-specific arity, and explicit
+`min_samples_leaf`) to avoid broadening recursive behavior for Horn, AntiHorn,
+Affine, or Square2CNF. The depth-2 deterministic tree test now verifies that the
+second-level split occurs inside only one active branch, that rows outside that
+branch are not reused, and that the depth-2 tree can improve over the matching
+depth-1 stump when a valid second-level split exists.
+
+The local/global row-index invariant is therefore: local search may choose a
+predicate using a compact node-local dataset, but child masks are always formed
+in global row-index space by re-evaluating that predicate on the original
+dataset and intersecting with the current active mask. Automated Python-vs-Rust
+recursive tree equivalence remains a TODO until PyO3 bindings exist.
+
 ## Build and test
 
 ```bash
@@ -600,9 +624,9 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add active-mask-aware search parity tests and stabilize recursive behavior
-   for ConjUI-only trees.
-2. Add small-tree prediction equivalence only after the recursive skeleton is
+1. Add a small Rust tree summary/introspection layer: number of nodes, number of
+   leaves, maximum observed depth, and training-accuracy convenience helper.
+2. Add small-tree prediction equivalence only after recursive introspection is
    stable.
 3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"` after Rust search parity is established.
@@ -620,7 +644,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - Square2CNF theorem certificates are still not implemented in Rust.
 - Affine/XOR search is threshold-literal XOR search only; there is no GF(2)
   basis construction, theorem certificate checker, or benchmark integration.
-- Recursive Rust tree learning is limited to a minimal depth-limited skeleton for one selected family; it has no pruning, BestPerNode, or benchmark integration.
+- Recursive Rust tree learning is limited to a minimal depth-limited skeleton for one selected family; active-subset parity is tested for ConjUI only, and there is no pruning, BestPerNode, or benchmark integration.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
   `*_with_min_leaf` APIs with the tree's configured value.
@@ -633,4 +657,4 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Add active-mask-aware search parity tests and stabilize recursive behavior for ConjUI-only trees. Keep theorem certificates out of Rust and do not implement PyO3, benchmark integration, pruning, or BestPerNode yet.
+Add a small Rust tree summary/introspection layer: number of nodes, number of leaves, maximum observed depth, and a training-accuracy convenience helper. Keep theorem certificates out of Rust and do not implement PyO3, benchmark integration, pruning, or BestPerNode yet.

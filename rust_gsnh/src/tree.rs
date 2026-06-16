@@ -239,14 +239,12 @@ fn build_tree_on_mask(
         return Ok(DecisionTree::Leaf(leaf));
     }
 
-    let local_dataset = active_subset_dataset(dataset, active_mask)?;
+    let local_dataset = dataset_from_mask(dataset, active_mask)?;
     let Some(split) = best_family_split(&local_dataset, config.family_config)? else {
         return Ok(DecisionTree::Leaf(leaf));
     };
 
-    let full_inside = evaluate_split_mask(&split, dataset)?;
-    let true_mask = active_mask.intersection(&full_inside)?;
-    let false_mask = active_mask.difference(&true_mask)?;
+    let (true_mask, false_mask) = active_split_masks_from_predicate(dataset, active_mask, &split)?;
 
     if true_mask.count_ones() == 0 || false_mask.count_ones() == 0 {
         return Ok(DecisionTree::Leaf(leaf));
@@ -309,14 +307,40 @@ pub fn tree_accuracy(tree: &DecisionTree, dataset: &Dataset) -> Result<f64, Stri
     accuracy_from_predictions(&predictions, dataset)
 }
 
-fn active_subset_dataset(dataset: &Dataset, active_mask: &BitSet) -> Result<Dataset, String> {
-    let mut rows = Vec::with_capacity(active_mask.count_ones());
-    let mut labels = Vec::with_capacity(active_mask.count_ones());
-    for row_index in active_mask.indices() {
+fn dataset_from_mask(dataset: &Dataset, mask: &BitSet) -> Result<Dataset, String> {
+    if mask.len() != dataset.n_samples() {
+        return Err(format!(
+            "mask length {} does not match dataset samples {}",
+            mask.len(),
+            dataset.n_samples()
+        ));
+    }
+
+    let mut rows = Vec::with_capacity(mask.count_ones());
+    let mut labels = Vec::with_capacity(mask.count_ones());
+    for row_index in mask.indices() {
         rows.push(dataset.row(row_index).to_vec());
         labels.push(dataset.labels()[row_index]);
     }
     Dataset::from_rows(rows, labels).map_err(|err| err.to_string())
+}
+
+fn active_split_masks_from_predicate(
+    dataset: &Dataset,
+    active_mask: &BitSet,
+    split: &BestFamilySplit,
+) -> Result<(BitSet, BitSet), String> {
+    if active_mask.len() != dataset.n_samples() {
+        return Err(format!(
+            "active mask length {} does not match dataset samples {}",
+            active_mask.len(),
+            dataset.n_samples()
+        ));
+    }
+    let full_inside = evaluate_split_mask(split, dataset)?;
+    let true_mask = active_mask.intersection(&full_inside)?;
+    let false_mask = active_mask.difference(&true_mask)?;
+    Ok((true_mask, false_mask))
 }
 
 fn split_masks(split: &BestFamilySplit) -> (BitSet, BitSet) {
@@ -722,6 +746,83 @@ mod tests {
     }
 
     #[test]
+    fn dataset_from_mask_preserves_active_row_order_features_and_labels() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![10.0, 0.0],
+                vec![11.0, 1.0],
+                vec![12.0, 0.0],
+                vec![13.0, 1.0],
+                vec![14.0, 0.0],
+            ],
+            vec![0, 1, 0, 1, 1],
+        )
+        .unwrap();
+        let mask = BitSet::from_indices(ds.n_samples(), &[1, 3, 4]).unwrap();
+        let local = dataset_from_mask(&ds, &mask).unwrap();
+        assert_eq!(local.n_samples(), 3);
+        assert_eq!(local.row(0), &[11.0, 1.0]);
+        assert_eq!(local.row(1), &[13.0, 1.0]);
+        assert_eq!(local.row(2), &[14.0, 0.0]);
+        assert_eq!(local.labels(), &[1, 1, 1]);
+    }
+
+    #[test]
+    fn active_split_masks_partition_only_the_active_mask() {
+        let ds = recursive_dataset();
+        let active_mask =
+            BitSet::from_indices(ds.n_samples(), &[4, 5, 6, 7, 8, 9, 10, 11]).unwrap();
+        let local = dataset_from_mask(&ds, &active_mask).unwrap();
+        let split = best_family_split(
+            &local,
+            FamilySearchConfig {
+                family: LanguageFamily::ConjUI,
+                max_arity: 2,
+                min_samples_leaf: 1,
+            },
+        )
+        .unwrap()
+        .unwrap();
+        let (true_mask, false_mask) =
+            active_split_masks_from_predicate(&ds, &active_mask, &split).unwrap();
+
+        assert!(true_mask
+            .difference(&active_mask)
+            .unwrap()
+            .indices()
+            .is_empty());
+        assert!(false_mask
+            .difference(&active_mask)
+            .unwrap()
+            .indices()
+            .is_empty());
+        assert!(true_mask
+            .intersection(&false_mask)
+            .unwrap()
+            .indices()
+            .is_empty());
+        assert_eq!(
+            true_mask.union(&false_mask).unwrap().indices(),
+            active_mask.indices()
+        );
+        assert_eq!(
+            true_mask.count_ones() + false_mask.count_ones(),
+            active_mask.count_ones()
+        );
+    }
+
+    #[test]
+    fn active_subset_helpers_reject_incompatible_mask_lengths() {
+        let ds = recursive_dataset();
+        let bad_mask = BitSet::with_all(ds.n_samples() - 1);
+        assert!(dataset_from_mask(&ds, &bad_mask).is_err());
+        let split = best_family_split(&ds, tree_config(1, 2).family_config)
+            .unwrap()
+            .unwrap();
+        assert!(active_split_masks_from_predicate(&ds, &bad_mask, &split).is_err());
+    }
+
+    #[test]
     fn recursive_tree_stopping_rules_build_leaves() {
         let ds = recursive_dataset();
         assert!(matches!(
@@ -804,11 +905,64 @@ mod tests {
             labels_to_predictions(&[0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0])
         );
         assert_eq!(tree_accuracy(&tree, &ds).unwrap(), 1.0);
+        let stump = build_stump_with_family(&ds, tree_config(1, 2).family_config).unwrap();
+        assert_ne!(
+            predict_tree(&tree, &ds).unwrap(),
+            predict_stump(&stump, &ds).unwrap()
+        );
+        assert!(tree_accuracy(&tree, &ds).unwrap() > stump_accuracy(&stump, &ds).unwrap());
         assert_eq!(
             predict_tree_row(&tree, &ds, 8).unwrap(),
             PredictionLabel::Positive
         );
         assert!(predict_tree_row(&tree, &ds, ds.n_samples()).is_err());
+    }
+
+    #[test]
+    fn mixed_child_with_no_valid_local_split_becomes_leaf() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+            ],
+            vec![0, 0, 0, 0, 0, 1, 0, 1],
+        )
+        .unwrap();
+        let tree = build_tree_with_family(
+            &ds,
+            TreeBuildConfig {
+                family_config: FamilySearchConfig {
+                    family: LanguageFamily::ConjUI,
+                    max_arity: 2,
+                    min_samples_leaf: 1,
+                },
+                max_depth: 3,
+                min_samples_split: 2,
+            },
+        )
+        .unwrap();
+        let DecisionTree::Split(root) = tree else {
+            panic!("expected root split");
+        };
+        let has_mixed_leaf_child = [&root.true_child, &root.false_child].iter().any(|child| {
+            matches!(
+                child.as_ref(),
+                DecisionTree::Leaf(LeafNode {
+                    counts: ClassCounts {
+                        positive: 2,
+                        negative: 2
+                    },
+                    ..
+                })
+            )
+        });
+        assert!(has_mixed_leaf_child);
     }
 
     #[test]
