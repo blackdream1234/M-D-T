@@ -39,6 +39,31 @@ pub enum StumpTree {
     Split(StumpNode),
 }
 
+/// Minimal depth-limited recursive decision tree.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DecisionTree {
+    Leaf(LeafNode),
+    Split(DecisionNode),
+}
+
+/// Recursive split node for one selected family.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DecisionNode {
+    pub split: BestFamilySplit,
+    pub true_child: Box<DecisionTree>,
+    pub false_child: Box<DecisionTree>,
+    pub counts: ClassCounts,
+    pub depth: usize,
+}
+
+/// Configuration for the shallow recursive Rust tree skeleton.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TreeBuildConfig {
+    pub family_config: FamilySearchConfig,
+    pub max_depth: usize,
+    pub min_samples_split: usize,
+}
+
 /// Build a majority leaf from a row mask.
 ///
 /// Python stores leaf probabilities with Laplace smoothing and predicts class 1
@@ -178,6 +203,120 @@ pub fn accuracy_from_u8_predictions(predictions: &[u8], dataset: &Dataset) -> Re
 pub fn stump_accuracy(tree: &StumpTree, dataset: &Dataset) -> Result<f64, String> {
     let predictions = predict_stump(tree, dataset)?;
     accuracy_from_predictions(&predictions, dataset)
+}
+
+/// Build a depth-limited recursive tree for exactly one selected family.
+pub fn build_tree_with_family(
+    dataset: &Dataset,
+    config: TreeBuildConfig,
+) -> Result<DecisionTree, String> {
+    let all_rows = BitSet::with_all(dataset.n_samples());
+    build_tree_on_mask(dataset, &all_rows, config, 0)
+}
+
+fn build_tree_on_mask(
+    dataset: &Dataset,
+    active_mask: &BitSet,
+    config: TreeBuildConfig,
+    depth: usize,
+) -> Result<DecisionTree, String> {
+    if active_mask.len() != dataset.n_samples() {
+        return Err(format!(
+            "active mask length {} does not match dataset samples {}",
+            active_mask.len(),
+            dataset.n_samples()
+        ));
+    }
+
+    let leaf = majority_leaf_from_mask(dataset, active_mask)?;
+    let active_count = active_mask.count_ones();
+    if active_count == 0
+        || depth >= config.max_depth
+        || active_count < config.min_samples_split
+        || leaf.counts.positive == 0
+        || leaf.counts.negative == 0
+    {
+        return Ok(DecisionTree::Leaf(leaf));
+    }
+
+    let local_dataset = active_subset_dataset(dataset, active_mask)?;
+    let Some(split) = best_family_split(&local_dataset, config.family_config)? else {
+        return Ok(DecisionTree::Leaf(leaf));
+    };
+
+    let full_inside = evaluate_split_mask(&split, dataset)?;
+    let true_mask = active_mask.intersection(&full_inside)?;
+    let false_mask = active_mask.difference(&true_mask)?;
+
+    if true_mask.count_ones() == 0 || false_mask.count_ones() == 0 {
+        return Ok(DecisionTree::Leaf(leaf));
+    }
+
+    let true_child = build_tree_on_mask(dataset, &true_mask, config, depth + 1)?;
+    let false_child = build_tree_on_mask(dataset, &false_mask, config, depth + 1)?;
+
+    Ok(DecisionTree::Split(DecisionNode {
+        split,
+        true_child: Box::new(true_child),
+        false_child: Box::new(false_child),
+        counts: leaf.counts,
+        depth,
+    }))
+}
+
+/// Predict one row with a depth-limited recursive tree.
+pub fn predict_tree_row(
+    tree: &DecisionTree,
+    dataset: &Dataset,
+    row_index: usize,
+) -> Result<PredictionLabel, String> {
+    if row_index >= dataset.n_samples() {
+        return Err(format!(
+            "row index {} out of range for dataset with {} samples",
+            row_index,
+            dataset.n_samples()
+        ));
+    }
+
+    match tree {
+        DecisionTree::Leaf(leaf) => Ok(leaf.prediction),
+        DecisionTree::Split(node) => {
+            let mask = evaluate_split_mask(&node.split, dataset)?;
+            if mask.contains(row_index)? {
+                predict_tree_row(&node.true_child, dataset, row_index)
+            } else {
+                predict_tree_row(&node.false_child, dataset, row_index)
+            }
+        }
+    }
+}
+
+/// Predict every row in `dataset` with a depth-limited recursive tree.
+pub fn predict_tree(
+    tree: &DecisionTree,
+    dataset: &Dataset,
+) -> Result<Vec<PredictionLabel>, String> {
+    let mut out = Vec::with_capacity(dataset.n_samples());
+    for row_index in 0..dataset.n_samples() {
+        out.push(predict_tree_row(tree, dataset, row_index)?);
+    }
+    Ok(out)
+}
+
+/// Predict every row with the recursive tree and compute classification accuracy.
+pub fn tree_accuracy(tree: &DecisionTree, dataset: &Dataset) -> Result<f64, String> {
+    let predictions = predict_tree(tree, dataset)?;
+    accuracy_from_predictions(&predictions, dataset)
+}
+
+fn active_subset_dataset(dataset: &Dataset, active_mask: &BitSet) -> Result<Dataset, String> {
+    let mut rows = Vec::with_capacity(active_mask.count_ones());
+    let mut labels = Vec::with_capacity(active_mask.count_ones());
+    for row_index in active_mask.indices() {
+        rows.push(dataset.row(row_index).to_vec());
+        labels.push(dataset.labels()[row_index]);
+    }
+    Dataset::from_rows(rows, labels).map_err(|err| err.to_string())
 }
 
 fn split_masks(split: &BestFamilySplit) -> (BitSet, BitSet) {
@@ -543,6 +682,133 @@ mod tests {
                 .unwrap(),
             1.0
         );
+    }
+
+    fn tree_config(max_depth: usize, min_samples_split: usize) -> TreeBuildConfig {
+        TreeBuildConfig {
+            family_config: FamilySearchConfig {
+                family: LanguageFamily::ConjUI,
+                max_arity: 1,
+                min_samples_leaf: 1,
+            },
+            max_depth,
+            min_samples_split,
+        }
+    }
+
+    fn recursive_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0],
+                vec![0.0],
+                vec![0.0],
+                vec![0.0],
+                vec![1.0],
+                vec![1.0],
+                vec![1.0],
+                vec![1.0],
+                vec![2.0],
+                vec![2.0],
+                vec![2.0],
+                vec![2.0],
+                vec![3.0],
+                vec![3.0],
+                vec![3.0],
+                vec![3.0],
+            ],
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn recursive_tree_stopping_rules_build_leaves() {
+        let ds = recursive_dataset();
+        assert!(matches!(
+            build_tree_with_family(&ds, tree_config(0, 2)).unwrap(),
+            DecisionTree::Leaf(_)
+        ));
+
+        let pure = Dataset::from_rows(vec![vec![0.0], vec![1.0]], vec![1, 1]).unwrap();
+        assert!(matches!(
+            build_tree_with_family(&pure, tree_config(3, 2)).unwrap(),
+            DecisionTree::Leaf(_)
+        ));
+
+        let no_split = Dataset::from_rows(vec![vec![0.0], vec![1.0]], vec![0, 0]).unwrap();
+        assert!(matches!(
+            build_tree_with_family(&no_split, tree_config(3, 2)).unwrap(),
+            DecisionTree::Leaf(_)
+        ));
+
+        assert!(matches!(
+            build_tree_with_family(&ds, tree_config(3, 17)).unwrap(),
+            DecisionTree::Leaf(_)
+        ));
+    }
+
+    #[test]
+    fn max_depth_one_matches_existing_stump_predictions() {
+        let ds = and_dataset();
+        let family_config = ge_config(LanguageFamily::ConjUI);
+        let stump = build_stump_with_family(&ds, family_config).unwrap();
+        let tree = build_tree_with_family(
+            &ds,
+            TreeBuildConfig {
+                family_config,
+                max_depth: 1,
+                min_samples_split: 2,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            predict_tree(&tree, &ds).unwrap(),
+            predict_stump(&stump, &ds).unwrap()
+        );
+        assert_eq!(
+            tree_accuracy(&tree, &ds).unwrap(),
+            stump_accuracy(&stump, &ds).unwrap()
+        );
+    }
+
+    #[test]
+    fn max_depth_two_uses_active_subsets_for_recursive_splits() {
+        let ds = recursive_dataset();
+        let tree = build_tree_with_family(&ds, tree_config(2, 2)).unwrap();
+        let DecisionTree::Split(root) = &tree else {
+            panic!("expected recursive root split");
+        };
+        assert_eq!(root.depth, 0);
+        assert_eq!(
+            root.counts,
+            ClassCounts {
+                positive: 4,
+                negative: 12
+            }
+        );
+
+        let true_child = root.true_child.as_ref();
+        let false_child = root.false_child.as_ref();
+        let recursive_child = match (true_child, false_child) {
+            (DecisionTree::Split(child), DecisionTree::Leaf(_)) => child,
+            (DecisionTree::Leaf(_), DecisionTree::Split(child)) => child,
+            _ => panic!("expected exactly one recursive child split"),
+        };
+        assert_eq!(recursive_child.depth, 1);
+        assert!(recursive_child.counts.positive > 0);
+        assert!(recursive_child.counts.negative > 0);
+        assert!(recursive_child.counts.positive + recursive_child.counts.negative < 16);
+
+        assert_eq!(
+            predict_tree(&tree, &ds).unwrap(),
+            labels_to_predictions(&[0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0])
+        );
+        assert_eq!(tree_accuracy(&tree, &ds).unwrap(), 1.0);
+        assert_eq!(
+            predict_tree_row(&tree, &ds, 8).unwrap(),
+            PredictionLabel::Positive
+        );
+        assert!(predict_tree_row(&tree, &ds, ds.n_samples()).is_err());
     }
 
     #[test]

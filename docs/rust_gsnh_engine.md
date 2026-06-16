@@ -556,6 +556,35 @@ structure, search for new splits, recurse, bind through PyO3, or integrate with
 benchmarks. Automated Python-vs-Rust stump prediction equivalence remains a TODO
 until PyO3 bindings exist.
 
+## Depth-limited recursive tree skeleton status
+
+`rust_gsnh/src/tree.rs` now includes a minimal recursive `DecisionTree` skeleton
+for exactly one selected `LanguageFamily`. `TreeBuildConfig` wraps the existing
+`FamilySearchConfig` plus `max_depth` and `min_samples_split`; each internal
+node stores one `BestFamilySplit`, class counts for the node's active rows, its
+depth, and true/false child trees.
+
+Depth starts at `0`, matching Python's `_build_tree(..., depth=0)` root call.
+The Rust skeleton stops when `depth >= max_depth`, when active samples are fewer
+than `min_samples_split`, when the active node is pure, when selected-family
+search returns `Ok(None)`, or when a selected split would make an empty branch.
+`min_samples_leaf` remains delegated to the selected family search through
+`FamilySearchConfig`, as in the earlier stump/family-search layers.
+
+Recursive search is active-subset aware. For each node, Rust copies only active
+rows into a small node-local `Dataset`, calls `best_family_split` on that local
+view, then evaluates the selected predicate against the original dataset and
+intersects it with the active mask to form true/false child masks. This avoids
+the unsafe shortcut of repeatedly searching the full dataset at every node.
+
+Branch convention remains unchanged: split true / inside rows go to
+`true_child`, and split false / outside rows go to `false_child`. Prediction uses
+`predict_tree_row` / `predict_tree`, and `tree_accuracy` reuses the existing
+accuracy helpers. This is still a skeleton only: it does not implement
+BestPerNode, cross-family comparison, pruning, theorem certificates, benchmark
+integration, PyO3, or parallelism. Automated Python-vs-Rust recursive tree
+equivalence remains a TODO until PyO3 bindings exist.
+
 ## Build and test
 
 ```bash
@@ -571,10 +600,10 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Implement a shallow recursive Rust tree skeleton with `max_depth` support for
-   one selected family only.
-2. Add small-tree prediction equivalence only after the shallow recursive
-   skeleton is stable.
+1. Add active-mask-aware search parity tests and stabilize recursive behavior
+   for ConjUI-only trees.
+2. Add small-tree prediction equivalence only after the recursive skeleton is
+   stable.
 3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"` after Rust search parity is established.
 4. Benchmarks with speedup ratios only after correctness parity is stable.
@@ -591,17 +620,17 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - Square2CNF theorem certificates are still not implemented in Rust.
 - Affine/XOR search is threshold-literal XOR search only; there is no GF(2)
   basis construction, theorem certificate checker, or benchmark integration.
-- No recursive Rust tree learning yet; only a one-node stump builder is available on top of the selected-family search facade.
+- Recursive Rust tree learning is limited to a minimal depth-limited skeleton for one selected family; it has no pruning, BestPerNode, or benchmark integration.
 - The non-suffixed Rust 1D helpers use `min_samples_leaf = 1` for backward
   compatibility; callers that need Python tree parity should call the
   `*_with_min_leaf` APIs with the tree's configured value.
 - High-cardinality quantile binning remains Python-only for now; Rust currently
   mirrors the exact-value midpoint threshold convention used for low-cardinality
   node-local 1D candidates.
-- Rust tree construction is limited to a non-recursive one-node stump with small prediction/accuracy helpers.
+- Rust tree construction now includes the stump plus a minimal active-subset-aware recursive skeleton.
 - No theorem certification is moved to Rust in this phase.
 - Python remains the only production engine and oracle.
 
 ## Next safe optimization step
 
-Implement a shallow recursive Rust tree skeleton with `max_depth` support for one selected family only. Keep theorem certificates out of Rust and do not implement PyO3, benchmark integration, pruning, or BestPerNode yet.
+Add active-mask-aware search parity tests and stabilize recursive behavior for ConjUI-only trees. Keep theorem certificates out of Rust and do not implement PyO3, benchmark integration, pruning, or BestPerNode yet.
