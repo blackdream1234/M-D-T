@@ -9,7 +9,7 @@ These are BASELINE JOURNAL LOGIC — must not be modified.
 """
 
 
-import numpy as np
+import numpy as np 
 
 
 class ExactSATSolver:
