@@ -609,6 +609,21 @@ in global row-index space by re-evaluating that predicate on the original
 dataset and intersecting with the current active mask. Automated Python-vs-Rust
 recursive tree equivalence remains a TODO until PyO3 bindings exist.
 
+## Tree summary and introspection status
+
+`rust_gsnh/src/tree.rs` now exposes read-only introspection helpers for
+`DecisionTree`. `TreeSummary` reports `n_nodes`, `n_leaves`,
+`n_internal_nodes`, and `max_depth`. A leaf contributes one node and one leaf; a
+split contributes one internal node plus both child subtrees; total nodes are
+therefore `n_internal_nodes + n_leaves`.
+
+`observed_tree_depth` is structural: a single leaf has depth `0`, a root split
+with two leaf children has depth `1`, and deeper trees add one level per split
+edge. `summarize_tree` combines the count helpers, and `training_accuracy` is a
+convenience wrapper around `tree_accuracy` for already-built trees. These helpers
+are read-only and do not alter tree construction, prediction, search, scoring,
+active-subset handling, or family semantics.
+
 ## Build and test
 
 ```bash
@@ -624,9 +639,9 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add a small Rust tree summary/introspection layer: number of nodes, number of
-   leaves, maximum observed depth, and training-accuracy convenience helper.
-2. Add small-tree prediction equivalence only after recursive introspection is
+1. Clean up the Rust train/predict API shape for future PyO3 binding by defining
+   stable Rust-facing config/result structs and functions.
+2. Add small-tree prediction equivalence only after the Rust-facing API shape is
    stable.
 3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"` after Rust search parity is established.
@@ -651,10 +666,10 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - High-cardinality quantile binning remains Python-only for now; Rust currently
   mirrors the exact-value midpoint threshold convention used for low-cardinality
   node-local 1D candidates.
-- Rust tree construction now includes the stump plus a minimal active-subset-aware recursive skeleton.
+- Rust tree construction now includes the stump plus a minimal active-subset-aware recursive skeleton and read-only summary helpers.
 - No theorem certification is moved to Rust in this phase.
 - Python remains the only production engine and oracle.
 
 ## Next safe optimization step
 
-Add a small Rust tree summary/introspection layer: number of nodes, number of leaves, maximum observed depth, and a training-accuracy convenience helper. Keep theorem certificates out of Rust and do not implement PyO3, benchmark integration, pruning, or BestPerNode yet.
+Clean up the Rust train/predict API shape for future PyO3 binding by defining stable Rust-facing config/result structs and functions. Keep theorem certificates out of Rust and do not implement PyO3, benchmark integration, pruning, or BestPerNode yet.

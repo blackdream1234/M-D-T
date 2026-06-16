@@ -49,8 +49,9 @@ pub use square_cnf::{
 
 pub use tree::{
     accuracy_from_predictions, accuracy_from_u8_predictions, build_stump_with_family,
-    build_tree_with_family, majority_leaf_from_mask, predict_stump, predict_stump_row,
-    predict_tree, predict_tree_row, prediction_label_to_u8, prediction_labels_to_u8,
-    stump_accuracy, tree_accuracy, DecisionNode, DecisionTree, LeafNode, PredictionLabel,
-    StumpNode, StumpTree, TreeBuildConfig,
+    build_tree_with_family, count_tree_internal_nodes, count_tree_leaves, count_tree_nodes,
+    majority_leaf_from_mask, observed_tree_depth, predict_stump, predict_stump_row, predict_tree,
+    predict_tree_row, prediction_label_to_u8, prediction_labels_to_u8, stump_accuracy,
+    summarize_tree, training_accuracy, tree_accuracy, DecisionNode, DecisionTree, LeafNode,
+    PredictionLabel, StumpNode, StumpTree, TreeBuildConfig, TreeSummary,
 };

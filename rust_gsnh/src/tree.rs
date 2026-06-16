@@ -64,6 +64,15 @@ pub struct TreeBuildConfig {
     pub min_samples_split: usize,
 }
 
+/// Read-only structural summary for a Rust decision tree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TreeSummary {
+    pub n_nodes: usize,
+    pub n_leaves: usize,
+    pub n_internal_nodes: usize,
+    pub max_depth: usize,
+}
+
 /// Build a majority leaf from a row mask.
 ///
 /// Python stores leaf probabilities with Laplace smoothing and predicts class 1
@@ -305,6 +314,64 @@ pub fn predict_tree(
 pub fn tree_accuracy(tree: &DecisionTree, dataset: &Dataset) -> Result<f64, String> {
     let predictions = predict_tree(tree, dataset)?;
     accuracy_from_predictions(&predictions, dataset)
+}
+
+/// Count all nodes in a decision tree.
+pub fn count_tree_nodes(tree: &DecisionTree) -> usize {
+    match tree {
+        DecisionTree::Leaf(_) => 1,
+        DecisionTree::Split(node) => {
+            1 + count_tree_nodes(&node.true_child) + count_tree_nodes(&node.false_child)
+        }
+    }
+}
+
+/// Count leaf nodes in a decision tree.
+pub fn count_tree_leaves(tree: &DecisionTree) -> usize {
+    match tree {
+        DecisionTree::Leaf(_) => 1,
+        DecisionTree::Split(node) => {
+            count_tree_leaves(&node.true_child) + count_tree_leaves(&node.false_child)
+        }
+    }
+}
+
+/// Count internal split nodes in a decision tree.
+pub fn count_tree_internal_nodes(tree: &DecisionTree) -> usize {
+    match tree {
+        DecisionTree::Leaf(_) => 0,
+        DecisionTree::Split(node) => {
+            1 + count_tree_internal_nodes(&node.true_child)
+                + count_tree_internal_nodes(&node.false_child)
+        }
+    }
+}
+
+/// Return the maximum observed depth in a decision tree.
+pub fn observed_tree_depth(tree: &DecisionTree) -> usize {
+    match tree {
+        DecisionTree::Leaf(_) => 0,
+        DecisionTree::Split(node) => {
+            1 + observed_tree_depth(&node.true_child).max(observed_tree_depth(&node.false_child))
+        }
+    }
+}
+
+/// Summarize read-only tree structure counts.
+pub fn summarize_tree(tree: &DecisionTree) -> TreeSummary {
+    let n_leaves = count_tree_leaves(tree);
+    let n_internal_nodes = count_tree_internal_nodes(tree);
+    TreeSummary {
+        n_nodes: n_leaves + n_internal_nodes,
+        n_leaves,
+        n_internal_nodes,
+        max_depth: observed_tree_depth(tree),
+    }
+}
+
+/// Convenience wrapper for training-set accuracy on an already-built tree.
+pub fn training_accuracy(tree: &DecisionTree, dataset: &Dataset) -> Result<f64, String> {
+    tree_accuracy(tree, dataset)
 }
 
 fn dataset_from_mask(dataset: &Dataset, mask: &BitSet) -> Result<Dataset, String> {
@@ -963,6 +1030,63 @@ mod tests {
             )
         });
         assert!(has_mixed_leaf_child);
+    }
+
+    #[test]
+    fn tree_summary_counts_single_leaf_tree() {
+        let ds = Dataset::from_rows(vec![vec![0.0], vec![1.0]], vec![0, 1]).unwrap();
+        let tree = DecisionTree::Leaf(majority_leaf_from_mask(&ds, &BitSet::with_all(2)).unwrap());
+        let summary = summarize_tree(&tree);
+        assert_eq!(
+            summary,
+            TreeSummary {
+                n_nodes: 1,
+                n_leaves: 1,
+                n_internal_nodes: 0,
+                max_depth: 0
+            }
+        );
+        assert_eq!(count_tree_nodes(&tree), 1);
+        assert_eq!(count_tree_leaves(&tree), 1);
+        assert_eq!(count_tree_internal_nodes(&tree), 0);
+        assert_eq!(observed_tree_depth(&tree), 0);
+    }
+
+    #[test]
+    fn tree_summary_counts_stump_shape() {
+        let ds = and_dataset();
+        let tree = build_tree_with_family(
+            &ds,
+            TreeBuildConfig {
+                family_config: ge_config(LanguageFamily::ConjUI),
+                max_depth: 1,
+                min_samples_split: 2,
+            },
+        )
+        .unwrap();
+        let summary = summarize_tree(&tree);
+        assert_eq!(summary.n_nodes, 3);
+        assert_eq!(summary.n_leaves, 2);
+        assert_eq!(summary.n_internal_nodes, 1);
+        assert_eq!(summary.max_depth, 1);
+        assert_eq!(summary.n_nodes, summary.n_internal_nodes + summary.n_leaves);
+    }
+
+    #[test]
+    fn tree_summary_counts_depth_two_tree_and_training_accuracy() {
+        let ds = recursive_dataset();
+        let tree = build_tree_with_family(&ds, tree_config(2, 2)).unwrap();
+        let summary = summarize_tree(&tree);
+        assert_eq!(summary.max_depth, 2);
+        assert_eq!(summary.n_nodes, summary.n_internal_nodes + summary.n_leaves);
+        assert!(summary.n_nodes > 3);
+        assert!(summary.n_internal_nodes >= 2);
+        assert!(summary.n_leaves >= 3);
+        assert_eq!(
+            training_accuracy(&tree, &ds).unwrap(),
+            tree_accuracy(&tree, &ds).unwrap()
+        );
+        assert_eq!(training_accuracy(&tree, &ds).unwrap(), 1.0);
     }
 
     #[test]
