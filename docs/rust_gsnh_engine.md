@@ -708,19 +708,31 @@ builds a prediction-only Rust `Dataset` with dummy binary labels and calls
 `summary` before `fit` raises a Python exception.
 
 The binding skeleton is gated behind the Rust `python` feature so ordinary
-`cargo test --manifest-path rust_gsnh/Cargo.toml` remains a pure Rust check. In a
-network-enabled development environment with maturin and PyO3 available, the
-intended build/test commands are:
+`cargo test --manifest-path rust_gsnh/Cargo.toml` remains a pure Rust check.
+`cargo test --manifest-path rust_gsnh/Cargo.toml --features python` now compiles
+the binding helper layer and its Rust-side tests. The actual PyO3 extension code
+is isolated behind a narrower `pyo3-extension` gate so the repository can still
+verify the `python` feature in offline environments where PyO3 cannot be
+downloaded.
+
+In a network-enabled development environment with maturin and PyO3 available,
+the intended build/test commands are:
 
 ```bash
-maturin develop --manifest-path rust_gsnh/Cargo.toml
+maturin develop --manifest-path rust_gsnh/Cargo.toml --features python
 pytest tests/test_rust_gsnh_binding.py -q
 ```
 
-The Python binding test module skips cleanly when `_rust_gsnh` is not installed,
-so the existing Python suite does not depend on the extension by default.
-Automated Python-vs-Rust prediction equivalence remains a TODO for the next
-phase.
+The Python binding test module skips binding-dependent checks cleanly when
+`_rust_gsnh` is not installed, so the existing Python suite does not depend on
+the extension by default.
+
+Tiny equivalence coverage is now present for the Rust-supported list-only subset
+when `_rust_gsnh` is installed: each supported family is exercised through
+fit/predict/score/summary invariants, and a depth-0 majority-leaf case compares
+Rust binding predictions with `ExpertGSNHTree` predictions exactly. Deeper exact
+parity tests remain deferred because the Python reference includes additional
+binning, stopping, pruning, and search behavior outside the current Rust subset.
 
 ## Build and test
 
@@ -737,15 +749,18 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add Python-vs-Rust equivalence tests on tiny deterministic datasets using the
-   binding.
-2. Expose an opt-in package-level wrapper after equivalence tests are stable.
+1. Add an optional Python wrapper mode such as `engine="rust"` in a separate
+   wrapper file without replacing the default Python GSNH engine.
+2. Extend Python-vs-Rust equivalence tests after the wrapper is stable.
 3. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
 
 - A minimal PyO3 binding skeleton exists, but it is optional, list-only, and not
   integrated into the production Python estimator or benchmarks.
+- In offline environments, `_rust_gsnh` may be unavailable; binding-dependent
+  tests skip in that case. The default cargo test path and the `python` feature
+  helper path both remain testable without installing the extension.
 - ConjUI enumeration/search exists only for arity 1 and arity 2; there is no 3D ConjUI Rust search yet.
 - Horn enumeration/search exists only for arity 1 and arity 2; there is no 3D Horn Rust search yet.
 - AntiHorn enumeration/search exists only for arity 1 and arity 2; there is no 3D AntiHorn Rust search yet.
@@ -771,7 +786,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Add Python-vs-Rust equivalence tests on tiny deterministic datasets using the
-binding. Keep benchmark integration, production replacement of Python GSNH,
-theorem certificates, pruning, parallelism, and BestPerNode out of Rust until the
-binding surface and parity checks are stable.
+Add an optional Python wrapper mode such as `engine="rust"` in a separate wrapper
+file. Keep it opt-in, keep the default Python GSNH engine unchanged, and do not
+connect benchmarks, theorem certificates, pruning, parallelism, or BestPerNode
+yet.
