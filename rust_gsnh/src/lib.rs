@@ -48,6 +48,7 @@ pub use square_cnf::{
 };
 
 pub use tree::{
-    build_stump_with_family, majority_leaf_from_mask, predict_stump, predict_stump_row, LeafNode,
-    PredictionLabel, StumpNode, StumpTree,
+    accuracy_from_predictions, accuracy_from_u8_predictions, build_stump_with_family,
+    majority_leaf_from_mask, predict_stump, predict_stump_row, prediction_label_to_u8,
+    prediction_labels_to_u8, stump_accuracy, LeafNode, PredictionLabel, StumpNode, StumpTree,
 };

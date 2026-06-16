@@ -534,6 +534,28 @@ Current limitations: no recursive tree learning, no pruning, no BestPerNode or
 all-family search, no theorem certificates, no benchmark integration, and no
 accuracy helper yet.
 
+## Stump prediction and accuracy helper status
+
+`rust_gsnh/src/tree.rs` also provides lightweight prediction-quality helpers for
+the one-node stump. `PredictionLabel::Negative` maps to binary label `0`, and
+`PredictionLabel::Positive` maps to binary label `1`, matching Python's
+`predict(...).astype(int)` output. `prediction_label_to_u8` converts one label,
+and `prediction_labels_to_u8` converts a prediction vector.
+
+Accuracy mirrors the Python benchmark and estimator formula
+`float((pred == y).mean())`: the helper counts exact binary-label matches and
+divides by `dataset.n_samples()`. `accuracy_from_predictions` accepts Rust
+`PredictionLabel` values, `accuracy_from_u8_predictions` accepts binary `u8`
+predictions, and `stump_accuracy` reuses `predict_stump` before computing the
+score.
+
+Error behavior is intentionally strict. Prediction length mismatches return
+`Err`, and `accuracy_from_u8_predictions` rejects labels other than `0` and `1`
+because Rust `Dataset` labels are binary. These helpers do not modify tree
+structure, search for new splits, recurse, bind through PyO3, or integrate with
+benchmarks. Automated Python-vs-Rust stump prediction equivalence remains a TODO
+until PyO3 bindings exist.
+
 ## Build and test
 
 ```bash
@@ -549,10 +571,10 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Implement depth-1 prediction parity checks and a small Rust accuracy helper
-   for the one-node stump.
-2. Add small-tree prediction equivalence only after the stump prediction helper
-   is stable.
+1. Implement a shallow recursive Rust tree skeleton with `max_depth` support for
+   one selected family only.
+2. Add small-tree prediction equivalence only after the shallow recursive
+   skeleton is stable.
 3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
    `engine="compare"` after Rust search parity is established.
 4. Benchmarks with speedup ratios only after correctness parity is stable.
@@ -576,10 +598,10 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - High-cardinality quantile binning remains Python-only for now; Rust currently
   mirrors the exact-value midpoint threshold convention used for low-cardinality
   node-local 1D candidates.
-- Rust tree construction is limited to a non-recursive one-node stump.
+- Rust tree construction is limited to a non-recursive one-node stump with small prediction/accuracy helpers.
 - No theorem certification is moved to Rust in this phase.
 - Python remains the only production engine and oracle.
 
 ## Next safe optimization step
 
-Implement depth-1 prediction parity checks and a small accuracy helper for the Rust stump. Keep theorem certificates out of Rust and do not implement recursive depth-limited tree learning yet.
+Implement a shallow recursive Rust tree skeleton with `max_depth` support for one selected family only. Keep theorem certificates out of Rust and do not implement PyO3, benchmark integration, pruning, or BestPerNode yet.

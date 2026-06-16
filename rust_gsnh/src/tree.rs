@@ -120,6 +120,66 @@ pub fn predict_stump(tree: &StumpTree, dataset: &Dataset) -> Result<Vec<Predicti
     Ok(out)
 }
 
+/// Convert a Rust prediction label to the binary label convention used by Python.
+pub fn prediction_label_to_u8(label: PredictionLabel) -> u8 {
+    match label {
+        PredictionLabel::Negative => 0,
+        PredictionLabel::Positive => 1,
+    }
+}
+
+/// Convert a slice of Rust prediction labels to binary `u8` labels.
+pub fn prediction_labels_to_u8(labels: &[PredictionLabel]) -> Vec<u8> {
+    labels.iter().copied().map(prediction_label_to_u8).collect()
+}
+
+/// Compute classification accuracy from Rust prediction labels.
+pub fn accuracy_from_predictions(
+    predictions: &[PredictionLabel],
+    dataset: &Dataset,
+) -> Result<f64, String> {
+    let as_u8 = prediction_labels_to_u8(predictions);
+    accuracy_from_u8_predictions(&as_u8, dataset)
+}
+
+/// Compute classification accuracy from binary `u8` predictions.
+///
+/// The formula mirrors Python benchmark usage: `(pred == y).mean()`.
+pub fn accuracy_from_u8_predictions(predictions: &[u8], dataset: &Dataset) -> Result<f64, String> {
+    if predictions.len() != dataset.n_samples() {
+        return Err(format!(
+            "prediction length {} does not match dataset samples {}",
+            predictions.len(),
+            dataset.n_samples()
+        ));
+    }
+
+    let mut correct = 0usize;
+    for (idx, (&pred, &actual)) in predictions.iter().zip(dataset.labels()).enumerate() {
+        match pred {
+            0 | 1 => {
+                if pred == actual {
+                    correct += 1;
+                }
+            }
+            other => {
+                return Err(format!(
+                    "invalid prediction label {} at row {}; expected 0 or 1",
+                    other, idx
+                ));
+            }
+        }
+    }
+
+    Ok(correct as f64 / dataset.n_samples() as f64)
+}
+
+/// Predict every row with the stump and compute classification accuracy.
+pub fn stump_accuracy(tree: &StumpTree, dataset: &Dataset) -> Result<f64, String> {
+    let predictions = predict_stump(tree, dataset)?;
+    accuracy_from_predictions(&predictions, dataset)
+}
+
 fn split_masks(split: &BestFamilySplit) -> (BitSet, BitSet) {
     match split {
         BestFamilySplit::Composed(evaluated) => (
@@ -405,6 +465,83 @@ mod tests {
         assert_eq!(
             predict_stump(&square_tree, &square_ds).unwrap(),
             labels_to_predictions(&expected)
+        );
+    }
+
+    #[test]
+    fn prediction_label_conversions_match_binary_label_convention() {
+        assert_eq!(prediction_label_to_u8(PredictionLabel::Negative), 0);
+        assert_eq!(prediction_label_to_u8(PredictionLabel::Positive), 1);
+        assert_eq!(
+            prediction_labels_to_u8(&[
+                PredictionLabel::Negative,
+                PredictionLabel::Positive,
+                PredictionLabel::Positive,
+            ]),
+            vec![0, 1, 1]
+        );
+    }
+
+    #[test]
+    fn accuracy_helpers_cover_perfect_partial_and_zero_accuracy() {
+        let ds = Dataset::from_rows(
+            vec![vec![0.0], vec![1.0], vec![2.0], vec![3.0]],
+            vec![0, 1, 1, 0],
+        )
+        .unwrap();
+
+        assert_eq!(
+            accuracy_from_u8_predictions(&[0, 1, 1, 0], &ds).unwrap(),
+            1.0
+        );
+        assert_eq!(
+            accuracy_from_u8_predictions(&[0, 0, 1, 1], &ds).unwrap(),
+            0.5
+        );
+        assert_eq!(
+            accuracy_from_u8_predictions(&[1, 0, 0, 1], &ds).unwrap(),
+            0.0
+        );
+
+        let rust_predictions = [
+            PredictionLabel::Negative,
+            PredictionLabel::Positive,
+            PredictionLabel::Negative,
+            PredictionLabel::Negative,
+        ];
+        assert_eq!(
+            accuracy_from_predictions(&rust_predictions, &ds).unwrap(),
+            0.75
+        );
+    }
+
+    #[test]
+    fn accuracy_helpers_reject_length_mismatch_and_invalid_u8_labels() {
+        let ds = Dataset::from_rows(vec![vec![0.0], vec![1.0]], vec![0, 1]).unwrap();
+        assert!(accuracy_from_u8_predictions(&[0], &ds).is_err());
+        assert!(accuracy_from_predictions(&[PredictionLabel::Negative], &ds).is_err());
+        assert!(accuracy_from_u8_predictions(&[0, 2], &ds).is_err());
+    }
+
+    #[test]
+    fn stump_accuracy_handles_single_leaf_and_split_stumps() {
+        let leaf_ds = Dataset::from_rows(
+            vec![vec![0.0], vec![1.0], vec![2.0], vec![3.0]],
+            vec![0, 0, 1, 1],
+        )
+        .unwrap();
+        let leaf_tree =
+            StumpTree::Leaf(majority_leaf_from_mask(&leaf_ds, &BitSet::with_all(4)).unwrap());
+        assert_eq!(stump_accuracy(&leaf_tree, &leaf_ds).unwrap(), 0.5);
+
+        let split_ds = and_dataset();
+        let split_tree =
+            build_stump_with_family(&split_ds, ge_config(LanguageFamily::ConjUI)).unwrap();
+        assert_eq!(stump_accuracy(&split_tree, &split_ds).unwrap(), 1.0);
+        assert_eq!(
+            accuracy_from_predictions(&predict_stump(&split_tree, &split_ds).unwrap(), &split_ds)
+                .unwrap(),
+            1.0
         );
     }
 
