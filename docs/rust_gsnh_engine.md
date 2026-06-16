@@ -719,7 +719,8 @@ In a network-enabled development environment with maturin and PyO3 available,
 the intended build/test commands are:
 
 ```bash
-maturin develop --manifest-path rust_gsnh/Cargo.toml --features python
+cargo test --manifest-path rust_gsnh/Cargo.toml --features python
+maturin develop --manifest-path rust_gsnh/Cargo.toml --features python,pyo3-extension
 pytest tests/test_rust_gsnh_binding.py -q
 ```
 
@@ -733,6 +734,38 @@ fit/predict/score/summary invariants, and a depth-0 majority-leaf case compares
 Rust binding predictions with `ExpertGSNHTree` predictions exactly. Deeper exact
 parity tests remain deferred because the Python reference includes additional
 binning, stopping, pruning, and search behavior outside the current Rust subset.
+
+## Optional PyO3 extension CI validation
+
+`.github/workflows/rust-gsnh-extension.yml` now adds a separate optional CI job
+for validating the `_rust_gsnh` extension without changing the main Python test
+path or engine defaults. The job checks out the repository, installs Python 3.11,
+sets up Rust stable, installs the package dev dependencies plus maturin, then
+runs:
+
+```bash
+cargo fmt --manifest-path rust_gsnh/Cargo.toml --check
+cargo test --manifest-path rust_gsnh/Cargo.toml
+cargo test --manifest-path rust_gsnh/Cargo.toml --features python
+maturin develop --manifest-path rust_gsnh/Cargo.toml --features python,pyo3-extension
+pytest tests/test_rust_gsnh_binding.py -q
+pytest tests/test_engine_wrapper.py -q
+pytest tests/test_engine_wrapper_parity.py -q
+```
+
+The matching local helper is `scripts/check_rust_gsnh_extension.sh`. It is a
+fail-fast script for contributors or CI runners that already have network access,
+an active Python virtual environment, and maturin available. The workflow creates
+and uses its own virtual environment before running `maturin develop`. The
+workflow and helper only build/install the optional extension and run
+binding/wrapper tests; they do not run benchmarks, require `.dl8` datasets,
+enable theorem certificates, or switch the default Python engine.
+
+`rust_gsnh/pyproject.toml` declares the maturin module name `_rust_gsnh` and now
+enables both the Rust-side `python` helper feature and the `pyo3-extension`
+feature for extension builds. The `python` feature remains dependency-light for
+ordinary cargo checks, while `pyo3-extension` pulls in PyO3 only for extension
+compilation.
 
 ## Optional Python engine wrapper status
 
@@ -800,8 +833,8 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Extend wrapper parity coverage only after the optional Rust extension is available in
-   CI.
+1. Keep `_rust_gsnh` extension validation green in the optional CI workflow and
+   local helper script.
 2. Add depth-1 selected-family parity cases only after their semantics are
    manually proven stable.
 3. Benchmarks with speedup ratios only after correctness parity is stable.
@@ -813,6 +846,9 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - In offline environments, `_rust_gsnh` may be unavailable; binding-dependent
   tests skip in that case. The default cargo test path and the `python` feature
   helper path both remain testable without installing the extension.
+- `_rust_gsnh` extension validation is isolated in a separate workflow and local
+  helper script; it installs maturin explicitly and does not alter production
+  defaults.
 - `GSNHEngineClassifier(engine="rust")` is opt-in and requires `_rust_gsnh`; it
   is not connected to `GSNHClassifier`, benchmark scripts, or production defaults.
 - Wrapper parity is currently limited to the depth-0 majority-leaf case; split
@@ -842,7 +878,8 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Extend wrapper parity only after the optional Rust extension is available in CI
-and the target split-level semantics are manually proven stable. Keep the Rust
-wrapper opt-in, keep the default Python GSNH engine unchanged, and do not connect
-benchmarks, theorem certificates, pruning, parallelism, or BestPerNode yet.
+Keep the optional `_rust_gsnh` extension validation green, then add depth-1
+selected-family wrapper parity only after the target split-level semantics are
+manually proven stable. Keep the Rust wrapper opt-in, keep the default Python
+GSNH engine unchanged, and do not connect benchmarks, theorem certificates,
+pruning, parallelism, or BestPerNode yet.

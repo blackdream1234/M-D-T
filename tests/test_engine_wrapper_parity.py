@@ -3,7 +3,6 @@ import pytest
 
 from gsnh_mdt.engine import GSNHEngineClassifier
 
-
 RUST_FAMILIES = ["ConjUI", "Horn", "AntiHorn", "Affine", "Square2CNF"]
 
 
