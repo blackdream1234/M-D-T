@@ -1,3 +1,4 @@
+import builtins
 import sys
 import types
 
@@ -8,9 +9,9 @@ from gsnh_mdt.engine import GSNHEngineClassifier
 
 
 def tiny_and_data():
-    return np.asarray(
-        [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]], dtype=float
-    ), np.asarray([0, 0, 0, 1], dtype=int)
+    return np.asarray([[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]], dtype=float), np.asarray(
+        [0, 0, 0, 1], dtype=int
+    )
 
 
 def test_default_engine_is_python():
@@ -38,7 +39,17 @@ def test_python_engine_fits_predicts_scores_and_summarizes():
     assert summary["n_nodes"] == summary["n_leaves"] + summary["n_internal_nodes"]
 
 
-def test_rust_engine_missing_extension_raises_import_error():
+def test_rust_engine_missing_extension_raises_import_error(monkeypatch):
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "_rust_gsnh":
+            raise ImportError("simulated missing _rust_gsnh")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.delitem(sys.modules, "_rust_gsnh", raising=False)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
     X, y = tiny_and_data()
     clf = GSNHEngineClassifier(engine="rust", family="ConjUI")
     with pytest.raises(ImportError, match="_rust_gsnh"):
