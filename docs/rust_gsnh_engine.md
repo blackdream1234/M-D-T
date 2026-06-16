@@ -762,6 +762,29 @@ small stub module verifies wrapper routing for the Rust path without requiring a
 compiled extension. The Python path is tested against `ExpertGSNHTree` to ensure
 the wrapper does not change existing reference behavior.
 
+## Wrapper parity-test status
+
+`tests/test_engine_wrapper_parity.py` now adds isolated wrapper parity tests for
+the safest known matching case: a depth-0 majority-leaf tree. The Python side is
+configured through `GSNHEngineClassifier(engine="python")` with
+`max_depth=0`, `min_samples_leaf=1`, `min_samples_split=1`,
+`use_supervised_binning=False`, and `verbose=False`. The Rust side is configured
+through `GSNHEngineClassifier(engine="rust")` with the same depth and sample
+settings plus `max_arity=2`.
+
+When `_rust_gsnh` is installed, the parity test fits both wrappers on the same
+tiny deterministic dataset, compares prediction vectors exactly, compares scores
+with pytest tolerance, and checks Rust summary invariants
+(`n_nodes == n_leaves + n_internal_nodes`, `max_depth == 0`). When `_rust_gsnh`
+is unavailable, the real Rust parity checks skip cleanly; separate non-binding
+tests still verify that the wrapper default remains Python and that Rust remains
+explicit opt-in.
+
+Depth-1 and deeper parity remain deferred. Python still has additional binning,
+stopping, pruning, and search behavior that can intentionally diverge from the
+current Rust subset, so no split-level wrapper parity is asserted until those
+cases are manually proven stable.
+
 ## Build and test
 
 ```bash
@@ -777,10 +800,10 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add isolated Python-vs-Rust wrapper parity tests for tiny deterministic
-   datasets where semantics are known to match.
-2. Extend wrapper coverage only after the optional Rust extension is available in
+1. Extend wrapper parity coverage only after the optional Rust extension is available in
    CI.
+2. Add depth-1 selected-family parity cases only after their semantics are
+   manually proven stable.
 3. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
@@ -792,6 +815,8 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
   helper path both remain testable without installing the extension.
 - `GSNHEngineClassifier(engine="rust")` is opt-in and requires `_rust_gsnh`; it
   is not connected to `GSNHClassifier`, benchmark scripts, or production defaults.
+- Wrapper parity is currently limited to the depth-0 majority-leaf case; split
+  parity remains deferred.
 - ConjUI enumeration/search exists only for arity 1 and arity 2; there is no 3D ConjUI Rust search yet.
 - Horn enumeration/search exists only for arity 1 and arity 2; there is no 3D Horn Rust search yet.
 - AntiHorn enumeration/search exists only for arity 1 and arity 2; there is no 3D AntiHorn Rust search yet.
@@ -817,7 +842,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Add isolated Python-vs-Rust wrapper parity tests for tiny deterministic datasets
-where semantics are known to match. Keep the Rust wrapper opt-in, keep the
-default Python GSNH engine unchanged, and do not connect benchmarks, theorem
-certificates, pruning, parallelism, or BestPerNode yet.
+Extend wrapper parity only after the optional Rust extension is available in CI
+and the target split-level semantics are manually proven stable. Keep the Rust
+wrapper opt-in, keep the default Python GSNH engine unchanged, and do not connect
+benchmarks, theorem certificates, pruning, parallelism, or BestPerNode yet.
