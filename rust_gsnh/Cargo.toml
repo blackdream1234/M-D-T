@@ -9,5 +9,10 @@ publish = false
 [lib]
 name = "rust_gsnh"
 path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+
+[features]
+default = []
+python = []

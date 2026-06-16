@@ -662,6 +662,66 @@ cross-family comparison or alter scoring.
 This wrapper is intentionally Rust-only for now. Automated Python-vs-Rust
 fit/predict parity remains a TODO until PyO3 exists.
 
+## PyO3 binding skeleton status
+
+`rust_gsnh/src/python.rs` now contains a minimal PyO3-facing binding skeleton
+for the stable Rust API. The crate keeps normal Rust library usage intact and
+adds a `cdylib` crate type plus a crate-local `pyproject.toml` for maturin. The
+root Python package is not replaced, and the binding does not add benchmark
+integration, theorem certificates, pruning, BestPerNode, rayon, or new learning
+semantics.
+
+The intended Python extension module name is `_rust_gsnh`, exposing a
+`RustGsnHClassifier` class:
+
+```python
+from _rust_gsnh import RustGsnHClassifier
+
+classifier = RustGsnHClassifier(
+    family="ConjUI",
+    max_arity=2,
+    max_depth=2,
+    min_samples_leaf=1,
+    min_samples_split=2,
+)
+
+classifier.fit(X, y)
+predictions = classifier.predict(X)
+accuracy = classifier.score(X, y)
+summary = classifier.summary()
+```
+
+The first binding accepts only plain Python lists:
+
+- `X`: `list[list[float]]`
+- `y`: `list[int]` with binary values `0` or `1`
+
+Supported family strings are `"ConjUI"`, `"Horn"`, `"AntiHorn"`, `"Affine"`,
+and `"Square2CNF"`. Unsupported names such as `"Any"`, `"BestPerNode"`, and
+legacy `"SquareCNF"` are rejected at construction time.
+
+`fit(X, y)` builds a Rust `Dataset` and calls `fit_rust_gsnh`. `predict(X)`
+builds a prediction-only Rust `Dataset` with dummy binary labels and calls
+`predict_rust_gsnh`. `score(X, y)` builds a labelled Rust `Dataset` and calls
+`score_rust_gsnh`. `summary()` returns a Python dictionary with `n_nodes`,
+`n_leaves`, `n_internal_nodes`, and `max_depth`. Calling `predict`, `score`, or
+`summary` before `fit` raises a Python exception.
+
+The binding skeleton is gated behind the Rust `python` feature so ordinary
+`cargo test --manifest-path rust_gsnh/Cargo.toml` remains a pure Rust check. In a
+network-enabled development environment with maturin and PyO3 available, the
+intended build/test commands are:
+
+```bash
+maturin develop --manifest-path rust_gsnh/Cargo.toml
+pytest tests/test_rust_gsnh_binding.py -q
+```
+
+The Python binding test module skips cleanly when `_rust_gsnh` is not installed,
+so the existing Python suite does not depend on the extension by default.
+Automated Python-vs-Rust prediction equivalence remains a TODO for the next
+phase.
+
 ## Build and test
 
 ```bash
@@ -677,15 +737,15 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add small-tree prediction equivalence only after the Rust-facing API shape is
-   stable.
-2. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
-   `engine="compare"` after Rust search parity is established.
+1. Add Python-vs-Rust equivalence tests on tiny deterministic datasets using the
+   binding.
+2. Expose an opt-in package-level wrapper after equivalence tests are stable.
 3. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
 
-- No PyO3 binding yet.
+- A minimal PyO3 binding skeleton exists, but it is optional, list-only, and not
+  integrated into the production Python estimator or benchmarks.
 - ConjUI enumeration/search exists only for arity 1 and arity 2; there is no 3D ConjUI Rust search yet.
 - Horn enumeration/search exists only for arity 1 and arity 2; there is no 3D Horn Rust search yet.
 - AntiHorn enumeration/search exists only for arity 1 and arity 2; there is no 3D AntiHorn Rust search yet.
@@ -704,14 +764,14 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
   node-local 1D candidates.
 - Rust tree construction now includes the stump plus a minimal active-subset-aware recursive skeleton and read-only summary helpers.
 - Stable Rust train/predict wrappers exist, but there is still no PyO3-facing
-  class, maturin package, benchmark integration, pruning, BestPerNode, or
-  theorem certificate path in Rust.
+  benchmark integration, pruning, BestPerNode, or theorem certificate path in
+  Rust.
 - No theorem certification is moved to Rust in this phase.
 - Python remains the only production engine and oracle.
 
 ## Next safe optimization step
 
-Add a PyO3/maturin binding skeleton around the stable Rust API only. Keep
-benchmark integration, production replacement of Python GSNH, theorem
-certificates, pruning, parallelism, and BestPerNode out of Rust until the binding
-surface and parity checks are stable.
+Add Python-vs-Rust equivalence tests on tiny deterministic datasets using the
+binding. Keep benchmark integration, production replacement of Python GSNH,
+theorem certificates, pruning, parallelism, and BestPerNode out of Rust until the
+binding surface and parity checks are stable.

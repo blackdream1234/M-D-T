@@ -14,6 +14,8 @@ pub mod data;
 pub mod family;
 pub mod horn;
 pub mod predicates;
+#[cfg(feature = "python")]
+pub mod python;
 pub mod scoring;
 pub mod search;
 pub mod square_cnf;

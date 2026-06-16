@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "rust-gsnh"
+version = "0.1.0"
+description = "Minimal PyO3 binding skeleton for the Rust GSNH engine"
+requires-python = ">=3.9"
+
+[tool.maturin]
+module-name = "_rust_gsnh"
+features = ["python"]
