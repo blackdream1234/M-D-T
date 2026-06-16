@@ -734,6 +734,34 @@ Rust binding predictions with `ExpertGSNHTree` predictions exactly. Deeper exact
 parity tests remain deferred because the Python reference includes additional
 binning, stopping, pruning, and search behavior outside the current Rust subset.
 
+## Optional Python engine wrapper status
+
+`src/gsnh_mdt/engine.py` now provides `GSNHEngineClassifier`, a small explicit
+engine-selection wrapper. The default is still `engine="python"`, which delegates
+to the existing `ExpertGSNHTree` reference implementation and forwards Python
+tree keyword arguments where feasible. This wrapper does not alter
+`GSNHClassifier`, benchmark defaults, or the production Python engine.
+
+`engine="rust"` is opt-in only. It validates that the requested family is in the
+currently supported Rust subset (`"ConjUI"`, `"Horn"`, `"AntiHorn"`, `"Affine"`,
+or `"Square2CNF"`), rejects unsupported Rust families (`"Any"`,
+`"BestPerNode"`, and legacy `"SquareCNF"`), rejects extra unsupported Rust-only
+options, and imports `_rust_gsnh.RustGsnHClassifier` only when fitting. If the
+extension is missing, the wrapper raises a clear `ImportError`; it does not
+silently fall back to Python after Rust was explicitly requested.
+
+The wrapper exposes `fit`, `predict`, `score`, and `summary`. For Python it uses
+NumPy arrays and computes score with the existing Python predictions. For Rust it
+converts NumPy/list-like inputs to plain lists because the current binding only
+accepts `list[list[float]]` and binary `list[int]` labels. `predict`, `score`,
+and `summary` before `fit` raise `RuntimeError`.
+
+`tests/test_engine_wrapper.py` keeps Rust-extension-dependent behavior optional:
+the missing-extension `ImportError` path is tested without `_rust_gsnh`, and a
+small stub module verifies wrapper routing for the Rust path without requiring a
+compiled extension. The Python path is tested against `ExpertGSNHTree` to ensure
+the wrapper does not change existing reference behavior.
+
 ## Build and test
 
 ```bash
@@ -749,9 +777,10 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Add an optional Python wrapper mode such as `engine="rust"` in a separate
-   wrapper file without replacing the default Python GSNH engine.
-2. Extend Python-vs-Rust equivalence tests after the wrapper is stable.
+1. Add isolated Python-vs-Rust wrapper parity tests for tiny deterministic
+   datasets where semantics are known to match.
+2. Extend wrapper coverage only after the optional Rust extension is available in
+   CI.
 3. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
@@ -761,6 +790,8 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - In offline environments, `_rust_gsnh` may be unavailable; binding-dependent
   tests skip in that case. The default cargo test path and the `python` feature
   helper path both remain testable without installing the extension.
+- `GSNHEngineClassifier(engine="rust")` is opt-in and requires `_rust_gsnh`; it
+  is not connected to `GSNHClassifier`, benchmark scripts, or production defaults.
 - ConjUI enumeration/search exists only for arity 1 and arity 2; there is no 3D ConjUI Rust search yet.
 - Horn enumeration/search exists only for arity 1 and arity 2; there is no 3D Horn Rust search yet.
 - AntiHorn enumeration/search exists only for arity 1 and arity 2; there is no 3D AntiHorn Rust search yet.
@@ -786,7 +817,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Next safe optimization step
 
-Add an optional Python wrapper mode such as `engine="rust"` in a separate wrapper
-file. Keep it opt-in, keep the default Python GSNH engine unchanged, and do not
-connect benchmarks, theorem certificates, pruning, parallelism, or BestPerNode
-yet.
+Add isolated Python-vs-Rust wrapper parity tests for tiny deterministic datasets
+where semantics are known to match. Keep the Rust wrapper opt-in, keep the
+default Python GSNH engine unchanged, and do not connect benchmarks, theorem
+certificates, pruning, parallelism, or BestPerNode yet.
