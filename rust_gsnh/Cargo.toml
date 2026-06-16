@@ -1,0 +1,13 @@
+[package]
+name = "rust_gsnh"
+version = "0.1.0"
+edition = "2021"
+description = "Incremental Rust engine for GSNH-MDT; Python remains the correctness oracle."
+license = "MIT"
+publish = false
+
+[lib]
+name = "rust_gsnh"
+path = "src/lib.rs"
+
+[dependencies]
