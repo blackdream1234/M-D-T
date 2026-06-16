@@ -624,6 +624,200 @@ convenience wrapper around `tree_accuracy` for already-built trees. These helper
 are read-only and do not alter tree construction, prediction, search, scoring,
 active-subset handling, or family semantics.
 
+## Stable Rust train/predict API status
+
+`rust_gsnh/src/api.rs` now defines a stable Rust-facing wrapper around the
+existing selected-family tree builder. This API is shaped so a future PyO3 layer
+can wrap a small number of public structs/functions, but this phase does not add
+PyO3, maturin, benchmark integration, theorem certificates, pruning, BestPerNode,
+or new learning semantics.
+
+`RustGsnHConfig` contains:
+
+- `family`: the single `LanguageFamily` to search at every node.
+- `max_arity`: literal arity for ConjUI, Horn, AntiHorn, and Affine/XOR; max
+  clause count for Square2CNF.
+- `max_depth`: depth limit for the existing recursive tree skeleton. `0` builds
+  a majority leaf.
+- `min_samples_leaf`: forwarded to family search. The existing Rust convention
+  allows `0` to disable branch-size rejection.
+- `min_samples_split`: minimum active rows required before attempting a split.
+
+`fit_rust_gsnh` validates `max_arity >= 1` and `min_samples_split >= 1`, converts
+`RustGsnHConfig` into the existing `FamilySearchConfig` and `TreeBuildConfig`,
+calls `build_tree_with_family`, stores `summarize_tree(&tree)` in the model, and
+returns `training_accuracy(&tree, dataset)` in `RustGsnHFitResult`.
+
+`RustGsnHModel` stores the trained `DecisionTree`, the immutable training
+configuration, and the `TreeSummary` captured at fit time. `RustGsnHFitResult`
+stores the model plus its training-set accuracy.
+
+`predict_rust_gsnh` reuses `predict_tree` and converts `PredictionLabel` values
+to Python-friendly binary labels (`Negative -> 0`, `Positive -> 1`).
+`score_rust_gsnh` reuses `tree_accuracy`, and `summarize_rust_gsnh` returns the
+stored summary. Unsupported family/arity combinations still fail through the
+existing selected-family search functions; the stable API does not add
+cross-family comparison or alter scoring.
+
+This wrapper is intentionally Rust-only for now. Automated Python-vs-Rust
+fit/predict parity remains a TODO until PyO3 exists.
+
+## PyO3 binding skeleton status
+
+`rust_gsnh/src/python.rs` now contains a minimal PyO3-facing binding skeleton
+for the stable Rust API. The crate keeps normal Rust library usage intact and
+adds a `cdylib` crate type plus a crate-local `pyproject.toml` for maturin. The
+root Python package is not replaced, and the binding does not add benchmark
+integration, theorem certificates, pruning, BestPerNode, rayon, or new learning
+semantics.
+
+The intended Python extension module name is `_rust_gsnh`, exposing a
+`RustGsnHClassifier` class:
+
+```python
+from _rust_gsnh import RustGsnHClassifier
+
+classifier = RustGsnHClassifier(
+    family="ConjUI",
+    max_arity=2,
+    max_depth=2,
+    min_samples_leaf=1,
+    min_samples_split=2,
+)
+
+classifier.fit(X, y)
+predictions = classifier.predict(X)
+accuracy = classifier.score(X, y)
+summary = classifier.summary()
+```
+
+The first binding accepts only plain Python lists:
+
+- `X`: `list[list[float]]`
+- `y`: `list[int]` with binary values `0` or `1`
+
+Supported family strings are `"ConjUI"`, `"Horn"`, `"AntiHorn"`, `"Affine"`,
+and `"Square2CNF"`. Unsupported names such as `"Any"`, `"BestPerNode"`, and
+legacy `"SquareCNF"` are rejected at construction time.
+
+`fit(X, y)` builds a Rust `Dataset` and calls `fit_rust_gsnh`. `predict(X)`
+builds a prediction-only Rust `Dataset` with dummy binary labels and calls
+`predict_rust_gsnh`. `score(X, y)` builds a labelled Rust `Dataset` and calls
+`score_rust_gsnh`. `summary()` returns a Python dictionary with `n_nodes`,
+`n_leaves`, `n_internal_nodes`, and `max_depth`. Calling `predict`, `score`, or
+`summary` before `fit` raises a Python exception.
+
+The binding skeleton is gated behind the Rust `python` feature so ordinary
+`cargo test --manifest-path rust_gsnh/Cargo.toml` remains a pure Rust check.
+`cargo test --manifest-path rust_gsnh/Cargo.toml --features python` now compiles
+the binding helper layer and its Rust-side tests. The actual PyO3 extension code
+is isolated behind a narrower `pyo3-extension` gate so the repository can still
+verify the `python` feature in offline environments where PyO3 cannot be
+downloaded.
+
+In a network-enabled development environment with maturin and PyO3 available,
+the intended build/test commands are:
+
+```bash
+cargo test --manifest-path rust_gsnh/Cargo.toml --features python
+maturin develop --manifest-path rust_gsnh/Cargo.toml --features python,pyo3-extension
+pytest tests/test_rust_gsnh_binding.py -q
+```
+
+The Python binding test module skips binding-dependent checks cleanly when
+`_rust_gsnh` is not installed, so the existing Python suite does not depend on
+the extension by default.
+
+Tiny equivalence coverage is now present for the Rust-supported list-only subset
+when `_rust_gsnh` is installed: each supported family is exercised through
+fit/predict/score/summary invariants, and a depth-0 majority-leaf case compares
+Rust binding predictions with `ExpertGSNHTree` predictions exactly. Deeper exact
+parity tests remain deferred because the Python reference includes additional
+binning, stopping, pruning, and search behavior outside the current Rust subset.
+
+## Optional PyO3 extension CI validation
+
+`.github/workflows/rust-gsnh-extension.yml` now adds a separate optional CI job
+for validating the `_rust_gsnh` extension without changing the main Python test
+path or engine defaults. The job checks out the repository, installs Python 3.11,
+sets up Rust stable, installs the package dev dependencies plus maturin, then
+runs:
+
+```bash
+cargo fmt --manifest-path rust_gsnh/Cargo.toml --check
+cargo test --manifest-path rust_gsnh/Cargo.toml
+cargo test --manifest-path rust_gsnh/Cargo.toml --features python
+maturin develop --manifest-path rust_gsnh/Cargo.toml --features python,pyo3-extension
+pytest tests/test_rust_gsnh_binding.py -q
+pytest tests/test_engine_wrapper.py -q
+pytest tests/test_engine_wrapper_parity.py -q
+```
+
+The matching local helper is `scripts/check_rust_gsnh_extension.sh`. It is a
+fail-fast script for contributors or CI runners that already have network access,
+an active Python virtual environment, and maturin available. The workflow creates
+and uses its own virtual environment before running `maturin develop`. The
+workflow and helper only build/install the optional extension and run
+binding/wrapper tests; they do not run benchmarks, require `.dl8` datasets,
+enable theorem certificates, or switch the default Python engine.
+
+`rust_gsnh/pyproject.toml` declares the maturin module name `_rust_gsnh` and now
+enables both the Rust-side `python` helper feature and the `pyo3-extension`
+feature for extension builds. The `python` feature remains dependency-light for
+ordinary cargo checks, while `pyo3-extension` pulls in PyO3 only for extension
+compilation.
+
+## Optional Python engine wrapper status
+
+`src/gsnh_mdt/engine.py` now provides `GSNHEngineClassifier`, a small explicit
+engine-selection wrapper. The default is still `engine="python"`, which delegates
+to the existing `ExpertGSNHTree` reference implementation and forwards Python
+tree keyword arguments where feasible. This wrapper does not alter
+`GSNHClassifier`, benchmark defaults, or the production Python engine.
+
+`engine="rust"` is opt-in only. It validates that the requested family is in the
+currently supported Rust subset (`"ConjUI"`, `"Horn"`, `"AntiHorn"`, `"Affine"`,
+or `"Square2CNF"`), rejects unsupported Rust families (`"Any"`,
+`"BestPerNode"`, and legacy `"SquareCNF"`), rejects extra unsupported Rust-only
+options, and imports `_rust_gsnh.RustGsnHClassifier` only when fitting. If the
+extension is missing, the wrapper raises a clear `ImportError`; it does not
+silently fall back to Python after Rust was explicitly requested.
+
+The wrapper exposes `fit`, `predict`, `score`, and `summary`. For Python it uses
+NumPy arrays and computes score with the existing Python predictions. For Rust it
+converts NumPy/list-like inputs to plain lists because the current binding only
+accepts `list[list[float]]` and binary `list[int]` labels. `predict`, `score`,
+and `summary` before `fit` raise `RuntimeError`.
+
+`tests/test_engine_wrapper.py` keeps Rust-extension-dependent behavior optional:
+the missing-extension `ImportError` path is tested without `_rust_gsnh`, and a
+small stub module verifies wrapper routing for the Rust path without requiring a
+compiled extension. The Python path is tested against `ExpertGSNHTree` to ensure
+the wrapper does not change existing reference behavior.
+
+## Wrapper parity-test status
+
+`tests/test_engine_wrapper_parity.py` now adds isolated wrapper parity tests for
+the safest known matching case: a depth-0 majority-leaf tree. The Python side is
+configured through `GSNHEngineClassifier(engine="python")` with
+`max_depth=0`, `min_samples_leaf=1`, `min_samples_split=1`,
+`use_supervised_binning=False`, and `verbose=False`. The Rust side is configured
+through `GSNHEngineClassifier(engine="rust")` with the same depth and sample
+settings plus `max_arity=2`.
+
+When `_rust_gsnh` is installed, the parity test fits both wrappers on the same
+tiny deterministic dataset, compares prediction vectors exactly, compares scores
+with pytest tolerance, and checks Rust summary invariants
+(`n_nodes == n_leaves + n_internal_nodes`, `max_depth == 0`). When `_rust_gsnh`
+is unavailable, the real Rust parity checks skip cleanly; separate non-binding
+tests still verify that the wrapper default remains Python and that Rust remains
+explicit opt-in.
+
+Depth-1 and deeper parity remain deferred. Python still has additional binning,
+stopping, pruning, and search behavior that can intentionally diverge from the
+current Rust subset, so no split-level wrapper parity is asserted until those
+cases are manually proven stable.
+
 ## Build and test
 
 ```bash
@@ -639,17 +833,26 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 ## Future safe implementation order
 
-1. Clean up the Rust train/predict API shape for future PyO3 binding by defining
-   stable Rust-facing config/result structs and functions.
-2. Add small-tree prediction equivalence only after the Rust-facing API shape is
-   stable.
-3. Add PyO3/maturin wrapper exposing `engine="python"`, `engine="rust"`, and
-   `engine="compare"` after Rust search parity is established.
-4. Benchmarks with speedup ratios only after correctness parity is stable.
+1. Keep `_rust_gsnh` extension validation green in the optional CI workflow and
+   local helper script.
+2. Add depth-1 selected-family parity cases only after their semantics are
+   manually proven stable.
+3. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
 
-- No PyO3 binding yet.
+- A minimal PyO3 binding skeleton exists, but it is optional, list-only, and not
+  integrated into the production Python estimator or benchmarks.
+- In offline environments, `_rust_gsnh` may be unavailable; binding-dependent
+  tests skip in that case. The default cargo test path and the `python` feature
+  helper path both remain testable without installing the extension.
+- `_rust_gsnh` extension validation is isolated in a separate workflow and local
+  helper script; it installs maturin explicitly and does not alter production
+  defaults.
+- `GSNHEngineClassifier(engine="rust")` is opt-in and requires `_rust_gsnh`; it
+  is not connected to `GSNHClassifier`, benchmark scripts, or production defaults.
+- Wrapper parity is currently limited to the depth-0 majority-leaf case; split
+  parity remains deferred.
 - ConjUI enumeration/search exists only for arity 1 and arity 2; there is no 3D ConjUI Rust search yet.
 - Horn enumeration/search exists only for arity 1 and arity 2; there is no 3D Horn Rust search yet.
 - AntiHorn enumeration/search exists only for arity 1 and arity 2; there is no 3D AntiHorn Rust search yet.
@@ -667,9 +870,16 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
   mirrors the exact-value midpoint threshold convention used for low-cardinality
   node-local 1D candidates.
 - Rust tree construction now includes the stump plus a minimal active-subset-aware recursive skeleton and read-only summary helpers.
+- Stable Rust train/predict wrappers exist, but there is still no PyO3-facing
+  benchmark integration, pruning, BestPerNode, or theorem certificate path in
+  Rust.
 - No theorem certification is moved to Rust in this phase.
 - Python remains the only production engine and oracle.
 
 ## Next safe optimization step
 
-Clean up the Rust train/predict API shape for future PyO3 binding by defining stable Rust-facing config/result structs and functions. Keep theorem certificates out of Rust and do not implement PyO3, benchmark integration, pruning, or BestPerNode yet.
+Keep the optional `_rust_gsnh` extension validation green, then add depth-1
+selected-family wrapper parity only after the target split-level semantics are
+manually proven stable. Keep the Rust wrapper opt-in, keep the default Python
+GSNH engine unchanged, and do not connect benchmarks, theorem certificates,
+pruning, parallelism, or BestPerNode yet.

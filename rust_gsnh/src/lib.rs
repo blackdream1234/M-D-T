@@ -6,6 +6,7 @@
 
 pub mod affine;
 pub mod antihorn;
+pub mod api;
 pub mod bitset;
 pub mod cache;
 pub mod conjui;
@@ -13,6 +14,8 @@ pub mod data;
 pub mod family;
 pub mod horn;
 pub mod predicates;
+#[cfg(feature = "python")]
+pub mod python;
 pub mod scoring;
 pub mod search;
 pub mod square_cnf;
@@ -20,6 +23,10 @@ pub mod tree;
 
 pub use affine::best_affine_split_with_min_leaf;
 pub use antihorn::best_antihorn_split_with_min_leaf;
+pub use api::{
+    fit_rust_gsnh, predict_rust_gsnh, score_rust_gsnh, summarize_rust_gsnh, RustGsnHConfig,
+    RustGsnHFitResult, RustGsnHModel,
+};
 pub use bitset::BitSet;
 pub use conjui::best_conjui_split_with_min_leaf;
 pub use data::{Dataset, DatasetError, FeatureSummary};

@@ -9,5 +9,12 @@ publish = false
 [lib]
 name = "rust_gsnh"
 path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+pyo3 = { version = "0.21", optional = true, features = ["extension-module"] }
+
+[features]
+default = []
+python = []
+pyo3-extension = ["dep:pyo3"]
