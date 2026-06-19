@@ -1,8 +1,7 @@
 from dataclasses import dataclass
-from typing import Dict, Tuple, List, Set
-from gsnh_mdt.literals.base import GSNHLiteral, LiteralPolarity
+from typing import Any, Dict, List, Tuple
 
-from typing import Dict, Tuple, List, Set, Any
+from gsnh_mdt.literals.base import GSNHLiteral, LiteralPolarity
 
 Atom = Any  # usually Tuple[int, float] for (feature, threshold), but can be auxiliary
 Clause = List[Tuple[int, bool]]  # Literal representation for the SAT solver using Atoms
@@ -13,8 +12,12 @@ class ThresholdEncoding:
     var_to_atom: List[Atom]
     clauses: List[List[Tuple[int, bool]]]
 
+def canonical_threshold(threshold: float) -> float:
+    return round(float(threshold), 10)
+
+
 def atom_id(encoding: ThresholdEncoding, feature: int, threshold: float) -> int:
-    atom = (int(feature), float(threshold))
+    atom = (int(feature), canonical_threshold(threshold))
     if atom not in encoding.atom_to_var:
         idx = len(encoding.var_to_atom)
         encoding.atom_to_var[atom] = idx
