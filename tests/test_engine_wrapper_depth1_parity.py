@@ -18,6 +18,13 @@ def simple_horn_or_data():
     )
 
 
+def simple_antihorn_or_data():
+    return (
+        np.asarray([[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]], dtype=float),
+        np.asarray([1, 1, 0, 1], dtype=int),
+    )
+
+
 def python_depth_one_classifier(family):
     return GSNHEngineClassifier(
         engine="python",
@@ -85,6 +92,26 @@ def test_depth_one_horn_or_predictions_scores_and_summary_match_real_rust(family
     assert rust_summary["max_depth"] <= 1
 
 
+@pytest.mark.parametrize("family", ["AntiHorn"])
+def test_depth_one_antihorn_or_predictions_scores_and_summary_match_real_rust(family):
+    pytest.importorskip("_rust_gsnh")
+    X, y = simple_antihorn_or_data()
+
+    py_clf = python_depth_one_classifier(family).fit(X, y)
+    rust_clf = rust_depth_one_classifier(family).fit(X, y)
+
+    py_predictions = py_clf.predict(X).astype(int).tolist()
+    rust_predictions = rust_clf.predict(X)
+
+    assert py_predictions == [1, 1, 0, 1]
+    assert rust_predictions == py_predictions
+    assert rust_clf.score(X, y) == pytest.approx(py_clf.score(X, y))
+
+    rust_summary = rust_clf.summary()
+    assert rust_summary["n_nodes"] == rust_summary["n_leaves"] + rust_summary["n_internal_nodes"]
+    assert rust_summary["max_depth"] <= 1
+
+
 def test_depth_one_remaining_families_remain_deferred_until_manually_verified():
-    deferred = {"AntiHorn", "Affine", "Square2CNF"}
-    assert deferred == {"AntiHorn", "Affine", "Square2CNF"}
+    deferred = {"Affine", "Square2CNF"}
+    assert deferred == {"Affine", "Square2CNF"}
