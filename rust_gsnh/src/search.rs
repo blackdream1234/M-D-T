@@ -1021,7 +1021,7 @@ mod tests {
             })
             .collect();
         let labels: Vec<u8> = (0..8)
-            .map(|bits| (((bits >> 2) & 1) ^ ((bits >> 1) & 1) ^ (bits & 1)) as u8)
+            .map(|bits| ((((bits >> 2) & 1) ^ ((bits >> 1) & 1) ^ (bits & 1)) as u8))
             .collect();
         let ds = Dataset::from_rows(rows, labels).unwrap();
         let pred = ComposedPredicate {
