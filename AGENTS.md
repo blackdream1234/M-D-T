@@ -1,66 +1,78 @@
 # AGENTS.md
 
-## Project context
+## Project rule
 
-This repository implements GSNH-MDT, an algorithm for learning multivariate decision trees with interpretable split languages such as Horn, AntiHorn, 2CNF/SquareCNF, and Affine.
+This repository contains a GSNH / MDT research implementation.
 
-The main objectives are:
-- correctness of the learning algorithm
-- theorem-compliant split behavior
-- formal explainability
-- compact tree size
-- reproducible benchmarks
-- reliable result persistence
-- clean comparison against baseline decision trees
+Do not perform large rewrites without tests.
 
-## Review guidelines
+## Architecture
 
-When reviewing this repository, focus on:
+Python is the experiment layer.
+Rust is the high-performance algorithmic core.
 
-1. Algorithmic correctness
-   - Verify that split selection does not violate the intended language constraints.
-   - Check that Horn, AntiHorn, 2CNF/SquareCNF, and Affine splits are treated consistently.
-   - Check that gain computation, stopping criteria, depth handling, and leaf prediction are correct.
+Python handles:
 
-2. Formal assumptions
-   - Identify where implementation assumptions diverge from theorem assumptions.
-   - Flag any place where a claimed explainability property is not enforced in code.
+* dataset loading
+* benchmark orchestration
+* sklearn comparison
+* CSV output
+* plotting
+* reports
 
-3. Benchmarking
-   - Check dataset loading.
-   - Check train/test split reproducibility.
-   - Check random seeds.
-   - Check result saving.
-   - Check whether experiments can be resumed without recomputing everything.
+Rust handles:
 
-4. Performance
-   - Look for unnecessary recomputation.
-   - Look for inefficient Python loops.
-   - Check Numba-compatible code.
-   - Check memory usage on large .dl8 datasets.
+* GSNH predicates
+* candidate generation
+* scoring
+* pruning
+* tree search
+* prediction
+* bitset/matrix-heavy operations
 
-5. Testing
-   - Identify missing unit tests.
-   - Propose tests for each split language.
-   - Propose tests for edge cases:
-     - empty dataset
-     - pure labels
-     - no valid split
-     - max depth reached
-     - duplicated features
-     - conflicting constraints
+## Correctness policy
 
-6. Output format
+The current Python implementation is the reference oracle.
 
-Return findings ranked as:
-- Critical
-- High
-- Medium
-- Low
+Any Rust implementation must be tested against Python before replacing behavior.
 
-For each issue, include:
-- file path
-- function/class
-- explanation
-- correction plan
-- test to add
+If Python and Rust disagree:
+
+1. save the failing input
+2. show expected Python output
+3. show actual Rust output
+4. explain the suspected cause
+5. do not continue broad implementation until fixed
+
+## Rust policy
+
+Prefer safe Rust.
+Do not use unsafe unless necessary and documented.
+Keep functions small.
+Use explicit types.
+Avoid hidden global state.
+Keep deterministic behavior.
+Add unit tests for each module.
+
+## Testing policy
+
+After Rust changes, run:
+
+cargo test
+
+After Python wrapper changes, run:
+
+maturin develop
+pytest
+
+After benchmark-related changes, run the smallest benchmark first before full benchmark execution.
+
+## Review policy
+
+Before final response, summarize:
+
+* changed files
+* tests run
+* test output
+* known limitations
+* next safe step
