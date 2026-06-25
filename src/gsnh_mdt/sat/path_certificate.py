@@ -119,9 +119,8 @@ def _encode_square2cnf_path_clauses(pred: Square2CNFPredicate, branch: bool,
     """Encode Square2CNF predicate path clauses.
 
     True branch:  (l1∨l2) ∧ (l3∨l4) → two 2-literal clauses
-    False branch: ¬[(l1∨l2)∧(l3∨l4)] = (¬l1∧¬l2) ∨ (¬l3∧¬l4)
-                  Encoded with auxiliary variable s:
-                  (¬s ∨ ¬l1), (¬s ∨ ¬l2), (s ∨ ¬l3), (s ∨ ¬l4)
+    False branch: ¬[(l1∨l2)∧(l3∨l4)] =
+                  (¬l1∨¬l3) ∧ (¬l1∨¬l4) ∧ (¬l2∨¬l3) ∧ (¬l2∨¬l4)
     """
     if len(pred.clauses) != 2:
         raise NonTheoremPathError(
@@ -145,29 +144,26 @@ def _encode_square2cnf_path_clauses(pred: Square2CNFPredicate, branch: bool,
             if clause:
                 encoding.clauses.append(clause)
     else:
-        # False branch: 2-CNF with auxiliary switch variable
+        # False branch: exact Square2CNF complement over original literals.
+        # ¬[(l1∨l2)∧(l3∨l4)] =
+        #   (¬l1∨¬l3) ∧ (¬l1∨¬l4) ∧ (¬l2∨¬l3) ∧ (¬l2∨¬l4)
         c1, c2 = pred.clauses
         l1, l2 = c1
         l3, l4 = c2
-        
-        # Auxiliary variable
-        aux_atom = ("square2cnf_false_aux", edge_id)
-        if aux_atom not in encoding.atom_to_var:
-            idx = len(encoding.var_to_atom)
-            encoding.atom_to_var[aux_atom] = idx
-            encoding.var_to_atom.append(aux_atom)
-        s_idx = encoding.atom_to_var[aux_atom]
-        
-        enc_l1 = encode_literal(l1, encoding) if isinstance(l1, GSNHLiteral) else None
-        enc_l2 = encode_literal(l2, encoding) if isinstance(l2, GSNHLiteral) else None
-        enc_l3 = encode_literal(l3, encoding) if isinstance(l3, GSNHLiteral) else None
-        enc_l4 = encode_literal(l4, encoding) if isinstance(l4, GSNHLiteral) else None
-        
-        # (¬s ∨ ¬l1), (¬s ∨ ¬l2), (s ∨ ¬l3), (s ∨ ¬l4)
-        if enc_l1: encoding.clauses.append([(s_idx, False), negate_encoded_lit(enc_l1)])
-        if enc_l2: encoding.clauses.append([(s_idx, False), negate_encoded_lit(enc_l2)])
-        if enc_l3: encoding.clauses.append([(s_idx, True), negate_encoded_lit(enc_l3)])
-        if enc_l4: encoding.clauses.append([(s_idx, True), negate_encoded_lit(enc_l4)])
+
+        encoded = [
+            encode_literal(l1, encoding),
+            encode_literal(l2, encoding),
+            encode_literal(l3, encoding),
+            encode_literal(l4, encoding),
+        ]
+        e1, e2, e3, e4 = [negate_encoded_lit(lit) for lit in encoded]
+        encoding.clauses.extend([
+            [e1, e3],
+            [e1, e4],
+            [e2, e3],
+            [e2, e4],
+        ])
 
 
 def classify_cnf_fragment(cnf: CNF) -> str:
@@ -175,11 +171,15 @@ def classify_cnf_fragment(cnf: CNF) -> str:
 
     Returns one of: "horn", "antihorn", "2cnf", "none"
 
-    Rules (matching Coq definitions):
+    Implemented structural SAT-fragment rules:
     - horn: every clause has ≤ 1 positive literal
     - antihorn: every clause has ≤ 1 negative literal
     - 2cnf: every clause has length ≤ 2
     - none: does not satisfy any of the above
+
+    This classifier intentionally checks ordinary Horn/AntiHorn SAT shape;
+    it does not validate the stronger star-nested Horn/AntiHorn language
+    condition unless a separate star-nested checker is added.
     """
     if not cnf:
         return "horn"  # empty CNF is trivially all three
@@ -218,11 +218,10 @@ def is_polynomial_safe_path(
     Returns (is_safe, certificate) where certificate is one of:
     "horn", "antihorn", "2cnf", "none"
 
-    A path is polynomial-safe iff its CNF is Horn, AntiHorn, or 2CNF.
-
-    This is the key theorem-compliance function: the Coq proof establishes
-    that Horn, AntiHorn, and 2CNF are all solvable in polynomial time,
-    while general CNF is NP-complete.
+    A path is polynomial-safe for the implemented Python checker iff its CNF
+    has an accepted ordinary Horn, AntiHorn, or 2CNF SAT-fragment certificate.
+    This is a structural SAT-fragment certificate, not a validation of the
+    stronger star-nested Horn/AntiHorn language condition.
     """
     try:
         _, cnf = build_ordered_selected_path_cnf(path_edges, x, selected_features)

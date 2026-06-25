@@ -13,7 +13,9 @@ import os
 import json
 import numpy as np
 
-RS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+from data_path import DATA_DIR, RS_ROOT
+from golden_utils import find_dataset_file
+
 sys.path.insert(0, RS_ROOT)
 from gsnh_mdt.tree.builder import ExpertGSNHTree
 from gsnh_mdt.tree.stopping import StoppingCriteria
@@ -121,19 +123,21 @@ def capture_expanded(name, X, y, seed=42, max_depth=7):
 def main():
     datasets = {
         # Original 3:
-        'lymph': os.path.join(RS_ROOT, 'data', 'lymph.dl8'),
-        'hepatitis': os.path.join(RS_ROOT, 'data', 'hepatitis.dl8'),
-        'vote': os.path.join(RS_ROOT, 'data', 'vote.dl8'),
+        'lymph': find_dataset_file('lymph'),
+        'hepatitis': find_dataset_file('hepatitis'),
+        'vote': find_dataset_file('vote'),
         # Expanded 6:
-        'tic-tac-toe': os.path.join(RS_ROOT, 'data', 'tic-tac-toe.dl8'),
-        'ionosphere': os.path.join(RS_ROOT, 'data', 'ionosphere.dl8'),
-        'kr-vs-kp': os.path.join(RS_ROOT, 'data', 'kr-vs-kp.dl8'),
-        'mushroom': os.path.join(RS_ROOT, 'data', 'mushroom.dl8'),
-        'anneal': os.path.join(RS_ROOT, 'data', 'anneal.dl8'),
-        'heart-cleveland': os.path.join(RS_ROOT, 'data', 'heart-cleveland.dl8'),
+        'tic-tac-toe': find_dataset_file('tic-tac-toe'),
+        'ionosphere': find_dataset_file('ionosphere'),
+        'kr-vs-kp': find_dataset_file('kr-vs-kp'),
+        'mushroom': find_dataset_file('mushroom'),
+        'anneal': find_dataset_file('anneal'),
+        'heart-cleveland': find_dataset_file('heart-cleveland'),
     }
 
-    golden = {}
+    golden = {
+        "_comment": "Post-theorem-boundary deterministic golden baselines."
+    }
     for name, path in datasets.items():
         if not os.path.exists(path):
             print(f"  SKIP {name}: not found at {path}")

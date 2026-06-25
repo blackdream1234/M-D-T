@@ -32,15 +32,17 @@ limit_2d                     SearchConfig.limit_2d                 None     BASE
 limit_3d                     SearchConfig.limit_3d                 None     BASELINE
 use_binary_comparisons       SearchConfig.use_binary_comparisons   False    EXPERIMENTAL
 enable_compare_literals      SearchConfig.enable_compare_literals  False    EXPERIMENTAL
+allow_affine_in_bestpn       SearchConfig.allow_affine_in_bestpn   False    EXPERIMENTAL
 prune                        ModelConfig.prune                     False    ENHANCED
 prune_alpha                  ModelConfig.prune_alpha               0.01     ENHANCED
 
 Precedence Rules
 ================
 1. If `from_config(config)` is used, ALL parameters come from the config.
-2. The legacy 22-param constructor is never altered.
-3. `from_config()` converts config fields into the exact legacy parameter
-   values, then calls the unchanged constructor.
+2. The constructor remains explicit: config fields map directly to
+   constructor keyword arguments.
+3. `from_config()` converts config fields into the exact constructor
+   values, then calls the constructor without implicit merging.
 4. No implicit merging — config is the single source when used.
 """
 
@@ -71,6 +73,7 @@ class SearchConfig:
     # EXPERIMENTAL
     use_binary_comparisons: bool = False
     enable_compare_literals: bool = False
+    allow_affine_in_bestpn: bool = False
 
 
 @dataclass
@@ -163,6 +166,7 @@ class ModelConfig:
             'limit_3d': self.search.limit_3d,
             'use_binary_comparisons': self.search.use_binary_comparisons,
             'enable_compare_literals': self.search.enable_compare_literals,
+            'allow_affine_in_bestpn': self.search.allow_affine_in_bestpn,
             'prune': self.prune,
             'prune_alpha': self.prune_alpha,
             'theorem_strict': self.theorem_strict,
