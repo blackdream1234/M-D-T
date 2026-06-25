@@ -813,22 +813,23 @@ is unavailable, the real Rust parity checks skip cleanly; separate non-binding
 tests still verify that the wrapper default remains Python and that Rust remains
 explicit opt-in.
 
-Depth-1 parity is now covered for three manually verified cases in
+Depth-1 parity is now covered for four manually verified cases in
 `tests/test_engine_wrapper_depth1_parity.py`: a `ConjUI` two-literal AND split, a
-`Horn` OR-style split corresponding to `(x0 >= 0.5) OR (x1 < 0.5)`, and an
-`AntiHorn` OR-style split corresponding to `(x0 < 0.5) OR (x1 >= 0.5)`. These
-cases use tiny finite numeric datasets, `max_depth=1`, `max_arity=2`,
-`min_samples_leaf=1`, `min_samples_split=2`, disable Python supervised binning,
-disable 3D search, and compare Python/Rust wrapper predictions and scores when
-`_rust_gsnh` is installed. Rust summary invariants are still checked for each
-split case.
+`Horn` OR-style split corresponding to `(x0 >= 0.5) OR (x1 < 0.5)`, an
+`AntiHorn` OR-style split corresponding to `(x0 < 0.5) OR (x1 >= 0.5)`, and an
+`Affine` XOR split corresponding to `XOR(x0 >= 0.5, x1 >= 0.5)`. These cases use
+tiny finite numeric datasets, `max_depth=1`, `max_arity=2`, `min_samples_leaf=1`,
+`min_samples_split=2`, disable Python supervised binning, disable 3D search, and
+compare Python/Rust wrapper predictions and scores when `_rust_gsnh` is
+installed. Rust summary invariants are still checked for each split case. Affine
+remains an auxiliary empirical family here; this parity test is not a theorem
+certificate claim.
 
-Depth-1 Affine and Square2CNF wrapper parity remain deferred. Those families can
-involve family-specific search choices or formula semantics that should be
-manually proven against Python before exact wrapper parity is asserted. Deeper
-parity also remains deferred because Python still has additional binning,
-stopping, pruning, and search behavior that can intentionally diverge from the
-current Rust subset.
+Depth-1 Square2CNF wrapper parity remains deferred. Square2CNF can involve
+formula-specific search choices that should be manually proven against Python
+before exact wrapper parity is asserted. Deeper parity also remains deferred
+because Python still has additional binning, stopping, pruning, and search
+behavior that can intentionally diverge from the current Rust subset.
 
 `tests/test_engine_wrapper.py` now simulates a missing `_rust_gsnh` extension with
 an import hook, so the missing-extension `ImportError` test passes whether or not
@@ -851,8 +852,8 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 
 1. Keep `_rust_gsnh` extension validation green in the optional CI workflow and
    local helper script.
-2. Add depth-1 parity for Affine and Square2CNF only after each family-specific
-   case is manually proven stable.
+2. Add depth-1 parity for Square2CNF only after the family-specific case is
+   manually proven stable.
 3. Benchmarks with speedup ratios only after correctness parity is stable.
 
 ## Known limitations
@@ -868,8 +869,8 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 - `GSNHEngineClassifier(engine="rust")` is opt-in and requires `_rust_gsnh`; it
   is not connected to `GSNHClassifier`, benchmark scripts, or production defaults.
 - Wrapper parity currently covers the depth-0 majority-leaf case plus depth-1
-  ConjUI, Horn, and AntiHorn split cases; Affine and Square2CNF split parity
-  remain deferred.
+  ConjUI, Horn, AntiHorn, and Affine split cases; Square2CNF split parity remains
+  deferred.
 - ConjUI enumeration/search exists only for arity 1 and arity 2; there is no 3D ConjUI Rust search yet.
 - Horn enumeration/search exists only for arity 1 and arity 2; there is no 3D Horn Rust search yet.
 - AntiHorn enumeration/search exists only for arity 1 and arity 2; there is no 3D AntiHorn Rust search yet.
@@ -896,7 +897,7 @@ cargo test --manifest-path rust_gsnh/Cargo.toml
 ## Next safe optimization step
 
 Keep the optional `_rust_gsnh` extension validation green, then add depth-1
-wrapper parity for Affine and Square2CNF only after each target split-level
-semantic is manually proven stable. Keep the Rust wrapper opt-in, keep the
-default Python GSNH engine unchanged, and do not connect benchmarks, theorem
-certificates, pruning, parallelism, or BestPerNode yet.
+wrapper parity for Square2CNF only after the target split-level semantic is
+manually proven stable. Keep the Rust wrapper opt-in, keep the default Python
+GSNH engine unchanged, and do not connect benchmarks, theorem certificates,
+pruning, parallelism, or BestPerNode yet.
