@@ -45,11 +45,13 @@ from __future__ import annotations
 
 import argparse
 import csv
-import glob
 import json
+import struct
+import zlib
 import math
 import os
 import sys
+from pathlib import Path
 import time
 import traceback
 import warnings
@@ -153,29 +155,65 @@ def remove_constant_columns(X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     return X[:, valid], valid
 
 
+def resolve_data_dir(cli_data_dir: Optional[str] = None) -> Path:
+    """Resolve benchmark data directory by CLI, env, then repo-local data/."""
+    candidates: List[Path] = []
+    if cli_data_dir:
+        candidates.append(Path(cli_data_dir))
+    if os.environ.get("GSNH_MDT_DATA_DIR"):
+        candidates.append(Path(os.environ["GSNH_MDT_DATA_DIR"]))
+    if os.environ.get("DATA_DIR"):
+        candidates.append(Path(os.environ["DATA_DIR"]))
+
+    repo_root = Path(__file__).resolve().parents[1]
+    candidates.append(repo_root / "data")
+
+    for candidate in candidates:
+        resolved = candidate.expanduser().resolve()
+        if resolved.exists() and resolved.is_dir():
+            return resolved
+
+    return candidates[-1].expanduser().resolve()
+
+
+def discover_dl8_files(data_dir: os.PathLike[str] | str) -> List[Path]:
+    """Discover .dl8 files recursively and report visible files if none exist."""
+    data_path = Path(data_dir).expanduser().resolve()
+    files = sorted(data_path.rglob("*.dl8"))
+    if not files:
+        visible: List[str] = []
+        if data_path.exists():
+            visible = sorted(
+                str(path.relative_to(data_path))
+                for path in data_path.rglob("*")
+                if path.is_file()
+            )[:50]
+        raise FileNotFoundError(
+            f"No .dl8 files found recursively under {data_path}. "
+            f"First files visible under data dir: {visible}"
+        )
+    return files
+
+
 def load_all_dl8(
-    data_dir: str,
+    data_dir: os.PathLike[str] | str,
     max_datasets: Optional[int] = None,
     dataset_filter: Optional[Sequence[str]] = None,
 ) -> "OrderedDict[str, Dict[str, Any]]":
-    """Load all .dl8 files from data_dir."""
-    dl8_files = sorted(glob.glob(os.path.join(data_dir, "*.dl8")))
+    """Load all .dl8 files recursively from data_dir."""
+    dl8_files = discover_dl8_files(data_dir)
     if dataset_filter:
         wanted = set(dataset_filter)
-        dl8_files = [p for p in dl8_files if os.path.basename(p).replace(".dl8", "") in wanted]
+        dl8_files = [p for p in dl8_files if p.stem in wanted]
 
     if max_datasets is not None:
         dl8_files = dl8_files[:max_datasets]
 
-    if not dl8_files:
-        print(f"  No .dl8 files found in {os.path.abspath(data_dir)}")
-        return OrderedDict()
-
     datasets: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
     for filepath in dl8_files:
-        name = os.path.basename(filepath).replace(".dl8", "")
+        name = filepath.stem
         try:
-            X, y_raw = parse_dl8(filepath)
+            X, y_raw = parse_dl8(str(filepath))
             n_unary_original = X.shape[1]
             y = binarize_labels(y_raw)
 
@@ -213,6 +251,30 @@ def load_all_dl8(
     return datasets
 
 
+
+def make_quick_synthetic_datasets() -> "OrderedDict[str, Dict[str, Any]]":
+    """Create a tiny deterministic fallback dataset for quick smoke runs.
+
+    This is used only when --quick is requested and no .dl8 files are present,
+    so CI can still verify that the evidence package writer produces all CSV,
+    LaTeX, PNG, and report artifacts without requiring private benchmark data.
+    """
+    rng = np.random.default_rng(42)
+    X = rng.integers(0, 2, size=(96, 8)).astype(np.float64)
+    y = ((X[:, 0] + X[:, 1] + (X[:, 2] * X[:, 3])) >= 2).astype(np.int32)
+    datasets: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+    datasets["quick_synthetic"] = {
+        "X": X,
+        "y": y,
+        "n_samples": int(X.shape[0]),
+        "n_features": int(X.shape[1]),
+        "n_unary_original": int(X.shape[1]),
+        "pos_rate": float(y.mean()),
+        "source": "synthetic quick-mode fallback",
+    }
+    return datasets
+
+
 # =============================================================================
 # METHODS / METRICS
 # =============================================================================
@@ -228,6 +290,24 @@ class MethodConfig:
     category: str
     description: str
     enabled_by_default: bool = True
+
+
+THEOREM_MODE_METHODS = {"1D", "Horn", "AntiHorn", "Square2CNF"}
+
+REQUIRED_RESULT_COLUMNS = [
+    "dataset", "n_samples", "n_features_original", "n_features_encoded", "positive_rate",
+    "method_key", "method_label", "category", "depth",
+    "accuracy_mean", "accuracy_std", "acc", "acc_std",
+    "tree_nodes_mean", "tree_nodes_std", "size", "leaves_mean", "leaves_std",
+    "max_depth_reached", "avg_leaf_depth", "avg_predicate_arity", "max_predicate_arity",
+    "total_literals", "compression_vs_sklearn_dt7", "mean_axp_length", "expl",
+    "axp_time_mean", "axp_time_std", "train_time_mean", "train_time_std",
+    "predict_time_mean", "predict_time_std", "weak_axp_checks_mean",
+    "opposite_paths_checked_mean", "sat_vars_mean", "sat_clauses_mean",
+    "axp_backend", "path_certificate", "theorem_mode_used", "theorem_certified",
+    "rejected_reason", "n_success", "n_fail", "random_state", "n_runs",
+    "train_test_split_protocol",
+]
 
 
 def default_method_configs(include_square2cnf: bool = True) -> List[MethodConfig]:
@@ -324,6 +404,22 @@ class MethodResult:
     size: float = math.nan
     expl: float = math.nan
     train_time: float = math.nan
+    train_time_std: float = math.nan
+    axp_time: float = math.nan
+    axp_time_std: float = math.nan
+    predict_time: float = math.nan
+    predict_time_std: float = math.nan
+    leaves: float = math.nan
+    leaves_std: float = math.nan
+    max_depth_reached: float = math.nan
+    avg_leaf_depth: float = math.nan
+    avg_predicate_arity: float = math.nan
+    max_predicate_arity: float = math.nan
+    total_literals: float = math.nan
+    weak_axp_checks_mean: float = math.nan
+    opposite_paths_checked_mean: float = math.nan
+    sat_vars_mean: float = math.nan
+    sat_clauses_mean: float = math.nan
     axp_valid_rate: float = math.nan
     axp_minimal_rate: float = math.nan
     n_success: int = 0
@@ -398,6 +494,80 @@ def count_gsnh_nodes(node: Optional[dict]) -> int:
         return 1
     return 1 + count_gsnh_nodes(node.get("left")) + count_gsnh_nodes(node.get("right"))
 
+
+
+def analyze_gsnh_tree(node: Optional[dict]) -> Dict[str, float]:
+    """Compute structural complexity metrics for a fitted GSNH tree."""
+    leaf_depths: List[int] = []
+    arities: List[int] = []
+    total_literals = 0
+
+    def walk(n: Optional[dict], depth: int) -> None:
+        nonlocal total_literals
+        if n is None:
+            return
+        pred = n.get("predicate") if isinstance(n, dict) else None
+        if n.get("is_leaf", True) or pred is None:
+            leaf_depths.append(depth)
+            return
+        if hasattr(pred, "clauses"):
+            clause_lens = [len(c) for c in getattr(pred, "clauses", [])]
+            arity = len(clause_lens)
+            lit_count = int(sum(clause_lens))
+        else:
+            lits = getattr(pred, "literals", [])
+            arity = len(lits)
+            lit_count = len(lits)
+        arities.append(int(arity))
+        total_literals += int(lit_count)
+        walk(n.get("left"), depth + 1)
+        walk(n.get("right"), depth + 1)
+
+    walk(node, 0)
+    return {
+        "leaves": float(len(leaf_depths)),
+        "max_depth_reached": float(max(leaf_depths) if leaf_depths else 0),
+        "avg_leaf_depth": safe_mean(leaf_depths),
+        "avg_predicate_arity": safe_mean(arities),
+        "max_predicate_arity": float(max(arities) if arities else 0),
+        "total_literals": float(total_literals),
+    }
+
+
+def analyze_sklearn_tree(tree: DecisionTreeClassifier) -> Dict[str, float]:
+    """Compute structural complexity metrics for sklearn's fitted CART tree."""
+    t = tree.tree_
+    leaf_depths: List[int] = []
+
+    def walk(node_id: int, depth: int) -> None:
+        if t.children_left[node_id] == t.children_right[node_id]:
+            leaf_depths.append(depth)
+            return
+        walk(t.children_left[node_id], depth + 1)
+        walk(t.children_right[node_id], depth + 1)
+
+    walk(0, 0)
+    internal = int(t.node_count - len(leaf_depths))
+    return {
+        "leaves": float(len(leaf_depths)),
+        "max_depth_reached": float(max(leaf_depths) if leaf_depths else 0),
+        "avg_leaf_depth": safe_mean(leaf_depths),
+        "avg_predicate_arity": 1.0 if internal else 0.0,
+        "max_predicate_arity": 1.0 if internal else 0.0,
+        "total_literals": float(internal),
+    }
+
+
+def _metadata_numeric_mean(items: Sequence[Any], name: str) -> float:
+    vals: List[float] = []
+    for item in items or []:
+        if isinstance(item, dict):
+            value = item.get(name)
+        else:
+            value = getattr(item, name, None)
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            vals.append(float(value))
+    return safe_mean(vals)
 
 def sklearn_path_length(tree: DecisionTreeClassifier, x: np.ndarray) -> int:
     t = tree.tree_
@@ -629,6 +799,8 @@ class LanguageComparisonBenchmark:
         ):
             if hasattr(tree, attr):
                 meta = getattr(tree, attr)
+                if isinstance(meta, list) and not meta:
+                    continue
                 if meta is not None:
                     return LanguageComparisonBenchmark._metadata_from_obj(meta)
 
@@ -651,7 +823,7 @@ class LanguageComparisonBenchmark:
             # Conservative default for old trees without explicit metadata.
             # Empirical methods stay non-certified unless the explainer records
             # a certificate.
-            if method.label == "Horn":
+            if method.label in {"1D", "Horn"}:
                 return {
                     "axp_backend": "structural_horn",
                     "theorem_certified": True,
@@ -710,7 +882,7 @@ class LanguageComparisonBenchmark:
         cert = _clean_metadata_value(row.get("path_certificate"), "none")
         label = _clean_metadata_value(row.get("method_label"), "")
 
-        forbidden = {"interval_dfs_fallback", "prototype_case_split", "rejected_non_theorem", "none"}
+        forbidden = {"interval_dfs_fallback", "prototype_case_split", "rejected_non_theorem", "affine", "none"}
         if backend in forbidden:
             return False
         if any(x in backend for x in forbidden):
@@ -719,8 +891,12 @@ class LanguageComparisonBenchmark:
         if label == "Square2CNF":
             return backend == "two_sat" and cert == "2cnf"
 
+        # This benchmark keeps BestPN in the empirical table even if a future
+        # path-level checker records safe-looking mixed certificates.  Add a
+        # separate explicitly-certified BestPN method before including it in
+        # theorem tables.
         if label == "BestPN":
-            return LanguageComparisonBenchmark._certificates_are_safe(cert)
+            return False
 
         return cert in {"horn", "antihorn", "2cnf"} or backend in {"structural_horn", "structural_antihorn", "two_sat"}
 
@@ -753,6 +929,18 @@ class LanguageComparisonBenchmark:
                 "path_certificate": [],
                 "rejected_reason": [],
                 "theorem_mode_used": [],
+                "leaves": [],
+                "max_depth_reached": [],
+                "avg_leaf_depth": [],
+                "avg_predicate_arity": [],
+                "max_predicate_arity": [],
+                "total_literals": [],
+                "predict_time": [],
+                "axp_time": [],
+                "weak_axp_checks": [],
+                "opposite_paths_checked": [],
+                "sat_vars": [],
+                "sat_clauses": [],
                 "errors": [],
             }
         }
@@ -772,6 +960,18 @@ class LanguageComparisonBenchmark:
                     "path_certificate": [],
                     "rejected_reason": [],
                     "theorem_mode_used": [],
+                    "leaves": [],
+                    "max_depth_reached": [],
+                    "avg_leaf_depth": [],
+                    "avg_predicate_arity": [],
+                    "max_predicate_arity": [],
+                    "total_literals": [],
+                    "predict_time": [],
+                    "axp_time": [],
+                    "weak_axp_checks": [],
+                    "opposite_paths_checked": [],
+                    "sat_vars": [],
+                    "sat_clauses": [],
                     "errors": [],
                 }
         return metrics
@@ -788,6 +988,22 @@ class LanguageComparisonBenchmark:
                 size=safe_mean(m["size"]),
                 expl=safe_mean(m["expl"]),
                 train_time=safe_mean(m["time"]),
+                train_time_std=safe_std(m["time"]),
+                axp_time=safe_mean(m.get("axp_time", [])),
+                axp_time_std=safe_std(m.get("axp_time", [])),
+                predict_time=safe_mean(m.get("predict_time", [])),
+                predict_time_std=safe_std(m.get("predict_time", [])),
+                leaves=safe_mean(m.get("leaves", [])),
+                leaves_std=safe_std(m.get("leaves", [])),
+                max_depth_reached=safe_mean(m.get("max_depth_reached", [])),
+                avg_leaf_depth=safe_mean(m.get("avg_leaf_depth", [])),
+                avg_predicate_arity=safe_mean(m.get("avg_predicate_arity", [])),
+                max_predicate_arity=safe_mean(m.get("max_predicate_arity", [])),
+                total_literals=safe_mean(m.get("total_literals", [])),
+                weak_axp_checks_mean=safe_mean(m.get("weak_axp_checks", [])),
+                opposite_paths_checked_mean=safe_mean(m.get("opposite_paths_checked", [])),
+                sat_vars_mean=safe_mean(m.get("sat_vars", [])),
+                sat_clauses_mean=safe_mean(m.get("sat_clauses", [])),
                 axp_valid_rate=safe_mean(m["axp_valid"]),
                 axp_minimal_rate=safe_mean(m["axp_minimal"]),
                 n_success=len(accs),
@@ -831,10 +1047,22 @@ class LanguageComparisonBenchmark:
                 dt.fit(X_tr, y_tr)
                 elapsed = time.time() - t0
 
-                metrics["sklearn_dt7"]["acc"].append(float((dt.predict(X_te) == y_te).mean()))
+                t_pred = time.time()
+                dt_pred = dt.predict(X_te)
+                pred_elapsed = time.time() - t_pred
+                dt_complexity = analyze_sklearn_tree(dt)
+                metrics["sklearn_dt7"]["acc"].append(float((dt_pred == y_te).mean()))
                 metrics["sklearn_dt7"]["size"].append(float(dt.tree_.node_count))
                 metrics["sklearn_dt7"]["expl"].append(avg_sklearn_expl(dt, X_te))
                 metrics["sklearn_dt7"]["time"].append(elapsed)
+                metrics["sklearn_dt7"]["predict_time"].append(pred_elapsed)
+                metrics["sklearn_dt7"]["axp_time"].append(math.nan)
+                for _k, _v in dt_complexity.items():
+                    metrics["sklearn_dt7"][_k].append(_v)
+                metrics["sklearn_dt7"]["weak_axp_checks"].append(math.nan)
+                metrics["sklearn_dt7"]["opposite_paths_checked"].append(math.nan)
+                metrics["sklearn_dt7"]["sat_vars"].append(math.nan)
+                metrics["sklearn_dt7"]["sat_clauses"].append(math.nan)
                 metrics["sklearn_dt7"]["axp_valid"].append(math.nan)
                 metrics["sklearn_dt7"]["axp_minimal"].append(math.nan)
                 metrics["sklearn_dt7"]["axp_backend"].append("sklearn")
@@ -868,9 +1096,7 @@ class LanguageComparisonBenchmark:
                         # BestPN remains empirical by default. Add a separate
                         # BestPN-Certified method if you want to benchmark the
                         # path-certificate-restricted variant.
-                        theorem_strict_run = method.label in {
-                            "1D", "Horn", "AntiHorn", "Square2CNF"
-                        }
+                        theorem_mode_used = method.label in THEOREM_MODE_METHODS
 
                         tree = ET(
                             stopping_criteria=SC(
@@ -885,20 +1111,25 @@ class LanguageComparisonBenchmark:
                             search_3d=method_search_3d,
                             mode=method.mode,
                             language=lang_family,
-                            theorem_strict=theorem_strict_run,
+                            theorem_strict=theorem_mode_used,
                             random_state=self.rs + run_idx,
                         )
                         tree.fit(X_tr, y_tr)
                         elapsed = time.time() - t0
 
+                        t_pred = time.time()
                         pred = tree.predict(X_te)
+                        pred_elapsed = time.time() - t_pred
                         acc = float((pred == y_te).mean())
                         size = float(count_gsnh_nodes(tree.root_))
+                        complexity = analyze_gsnh_tree(tree.root_)
+                        t_axp = time.time()
                         expl = avg_gsnh_axp_length(
                             tree, X_te,
                             n_samples=self.axp_samples,
                             seed=self.rs + 1000 * run_idx + depth,
                         )
+                        axp_elapsed = time.time() - t_axp
 
                         axp_valid = math.nan
                         axp_minimal = math.nan
@@ -915,11 +1146,24 @@ class LanguageComparisonBenchmark:
                             metrics[key]["errors"].append(f"run {run_idx}: {warning}")
 
                         theorem_meta = self._extract_tree_theorem_metadata(tree, method)
+                        # The benchmark method decides whether theorem-strict mode
+                        # was intentionally used.  Do not rely on optional AXp
+                        # metadata defaults, which may omit this flag.
+                        theorem_meta["theorem_mode_used"] = bool(theorem_mode_used)
 
                         metrics[key]["acc"].append(acc)
                         metrics[key]["size"].append(size)
                         metrics[key]["expl"].append(expl)
                         metrics[key]["time"].append(elapsed)
+                        metrics[key]["predict_time"].append(pred_elapsed)
+                        metrics[key]["axp_time"].append(axp_elapsed)
+                        for _k, _v in complexity.items():
+                            metrics[key][_k].append(_v)
+                        metadata_items = getattr(tree, "axp_metadata_", []) or []
+                        metrics[key]["weak_axp_checks"].append(float(len(metadata_items)) if metadata_items else math.nan)
+                        metrics[key]["opposite_paths_checked"].append(math.nan)
+                        metrics[key]["sat_vars"].append(_metadata_numeric_mean(metadata_items, "sat_vars"))
+                        metrics[key]["sat_clauses"].append(_metadata_numeric_mean(metadata_items, "sat_clauses"))
                         metrics[key]["axp_valid"].append(axp_valid)
                         metrics[key]["axp_minimal"].append(axp_minimal)
                         metrics[key]["axp_backend"].append(theorem_meta.get("axp_backend", "none"))
@@ -1012,7 +1256,7 @@ class LanguageComparisonBenchmark:
         for depth in self.depths:
             print(f"\n--- DEPTH {depth} ACCURACY ---")
             methods_at_depth = ["sklearn_dt7"] + [
-                f"gsnh_{m.label}_d{depth}" for m in self.methods if m.label in self.lang_map
+                f"gsnh_{m.label}_d{depth}" for m in self.methods if m.label in getattr(self, "lang_map", {})
             ]
 
             method_labels = [self._key_label(k) for k in methods_at_depth]
@@ -1159,7 +1403,7 @@ class LanguageComparisonBenchmark:
         chunks = []
         for depth in self.depths:
             keys = ["sklearn_dt7"] + [
-                f"gsnh_{m.label}_d{depth}" for m in self.methods if m.label in self.lang_map
+                f"gsnh_{m.label}_d{depth}" for m in self.methods if m.label in getattr(self, "lang_map", {})
             ]
 
             col_spec = "l|" + "c" * len(keys)
@@ -1205,11 +1449,20 @@ class LanguageComparisonBenchmark:
 
         return "\n\n".join(chunks)
 
+
     def _result_rows(self) -> List[Dict[str, Any]]:
         """Flatten aggregated results into long-format rows with theorem metadata."""
         rows: List[Dict[str, Any]] = []
         category = {m.label: m.category for m in self.methods}
+        baseline_size_by_dataset: Dict[str, float] = {}
         for ds, r in self.results_.items():
+            base = r.get("sklearn_dt7")
+            if base and base.size and not math.isnan(base.size):
+                baseline_size_by_dataset[ds] = float(base.size)
+
+        for ds, r in self.results_.items():
+            meta = getattr(self, "dataset_meta_", {}).get(ds, {})
+            baseline_size = baseline_size_by_dataset.get(ds, math.nan)
             for key, res in r.items():
                 if key == "sklearn_dt7":
                     label, depth, cat = "sklearn DT", 7, "baseline"
@@ -1218,17 +1471,46 @@ class LanguageComparisonBenchmark:
                     label, depth_s = label_part.rsplit("_d", 1)
                     depth = int(depth_s)
                     cat = category.get(label, "")
-                rows.append({
+                compression = math.nan
+                if baseline_size and not math.isnan(baseline_size) and res.size and not math.isnan(res.size) and res.size > 0:
+                    compression = float(baseline_size) / float(res.size)
+                row = {
                     "dataset": ds,
+                    "n_samples": meta.get("n_samples", meta.get("n", "")),
+                    "n_features_original": meta.get("n_unary_original", meta.get("n_features_original", meta.get("n_features", ""))),
+                    "n_features_encoded": meta.get("n_features", meta.get("n_features_encoded", "")),
+                    "positive_rate": meta.get("pos_rate", meta.get("positive_rate", "")),
                     "method_key": key,
                     "method_label": label,
                     "depth": depth,
                     "category": cat,
+                    "accuracy_mean": res.acc,
+                    "accuracy_std": res.acc_std,
                     "acc": res.acc,
                     "acc_std": res.acc_std,
+                    "tree_nodes_mean": res.size,
+                    "tree_nodes_std": math.nan,
                     "size": res.size,
+                    "leaves_mean": res.leaves,
+                    "leaves_std": res.leaves_std,
+                    "max_depth_reached": res.max_depth_reached,
+                    "avg_leaf_depth": res.avg_leaf_depth,
+                    "avg_predicate_arity": res.avg_predicate_arity,
+                    "max_predicate_arity": res.max_predicate_arity,
+                    "total_literals": res.total_literals,
+                    "compression_vs_sklearn_dt7": compression,
+                    "mean_axp_length": res.expl,
                     "expl": res.expl,
-                    "train_time": res.train_time,
+                    "axp_time_mean": res.axp_time,
+                    "axp_time_std": res.axp_time_std,
+                    "train_time_mean": res.train_time,
+                    "train_time_std": res.train_time_std,
+                    "predict_time_mean": res.predict_time,
+                    "predict_time_std": res.predict_time_std,
+                    "weak_axp_checks_mean": res.weak_axp_checks_mean,
+                    "opposite_paths_checked_mean": res.opposite_paths_checked_mean,
+                    "sat_vars_mean": res.sat_vars_mean,
+                    "sat_clauses_mean": res.sat_clauses_mean,
                     "axp_valid_rate": res.axp_valid_rate,
                     "axp_minimal_rate": res.axp_minimal_rate,
                     "n_success": res.n_success,
@@ -1241,19 +1523,156 @@ class LanguageComparisonBenchmark:
                     "random_state": self.rs,
                     "n_runs": self.n_runs,
                     "train_test_split_protocol": "StratifiedShuffleSplit(test_size=0.2)",
-                })
+                }
+                rows.append(row)
         return rows
 
     @staticmethod
+    def _numeric(row: Dict[str, Any], key: str) -> float:
+        try:
+            v = row.get(key, math.nan)
+            if v == "" or v is None:
+                return math.nan
+            return float(v)
+        except (TypeError, ValueError):
+            return math.nan
+
+    @staticmethod
+    def _mean_rows(rows: List[Dict[str, Any]], key: str) -> float:
+        return safe_mean([LanguageComparisonBenchmark._numeric(r, key) for r in rows])
+
+    @staticmethod
+    def _std_rows(rows: List[Dict[str, Any]], key: str) -> float:
+        return safe_std([LanguageComparisonBenchmark._numeric(r, key) for r in rows])
+
+    @staticmethod
+    def _group_by(rows: List[Dict[str, Any]], keys: Sequence[str]) -> Dict[Tuple[Any, ...], List[Dict[str, Any]]]:
+        out: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = defaultdict(list)
+        for row in rows:
+            out[tuple(row.get(k, "") for k in keys)].append(row)
+        return out
+
+    def _summary_by_method(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        summary: List[Dict[str, Any]] = []
+        for (label, category, depth), group in sorted(self._group_by(rows, ["method_label", "category", "depth"]).items()):
+            summary.append({
+                "method_label": label,
+                "category": category,
+                "depth": depth,
+                "n_datasets": len({r.get("dataset") for r in group}),
+                "accuracy_mean": self._mean_rows(group, "accuracy_mean"),
+                "accuracy_std": self._std_rows(group, "accuracy_mean"),
+                "tree_nodes_mean": self._mean_rows(group, "tree_nodes_mean"),
+                "tree_nodes_std": self._std_rows(group, "tree_nodes_mean"),
+                "leaves_mean": self._mean_rows(group, "leaves_mean"),
+                "leaves_std": self._std_rows(group, "leaves_mean"),
+                "max_depth_reached": self._mean_rows(group, "max_depth_reached"),
+                "avg_leaf_depth": self._mean_rows(group, "avg_leaf_depth"),
+                "avg_predicate_arity": self._mean_rows(group, "avg_predicate_arity"),
+                "max_predicate_arity": self._mean_rows(group, "max_predicate_arity"),
+                "total_literals": self._mean_rows(group, "total_literals"),
+                "compression_vs_sklearn_dt7": self._mean_rows(group, "compression_vs_sklearn_dt7"),
+                "mean_axp_length": self._mean_rows(group, "mean_axp_length"),
+                "axp_time_mean": self._mean_rows(group, "axp_time_mean"),
+                "axp_time_std": self._std_rows(group, "axp_time_mean"),
+                "train_time_mean": self._mean_rows(group, "train_time_mean"),
+                "train_time_std": self._std_rows(group, "train_time_mean"),
+                "predict_time_mean": self._mean_rows(group, "predict_time_mean"),
+                "predict_time_std": self._std_rows(group, "predict_time_mean"),
+                "weak_axp_checks_mean": self._mean_rows(group, "weak_axp_checks_mean"),
+                "opposite_paths_checked_mean": self._mean_rows(group, "opposite_paths_checked_mean"),
+                "sat_vars_mean": self._mean_rows(group, "sat_vars_mean"),
+                "sat_clauses_mean": self._mean_rows(group, "sat_clauses_mean"),
+                "n_success": int(sum(self._numeric(r, "n_success") for r in group if not math.isnan(self._numeric(r, "n_success")))),
+                "n_fail": int(sum(self._numeric(r, "n_fail") for r in group if not math.isnan(self._numeric(r, "n_fail")))),
+            })
+        return summary
+
+    def _complexity_by_dataset(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for (dataset,), group in sorted(self._group_by(rows, ["dataset"]).items()):
+            sample = group[0]
+            out.append({
+                "dataset": dataset,
+                "n_samples": sample.get("n_samples", ""),
+                "n_features_original": sample.get("n_features_original", ""),
+                "n_features_encoded": sample.get("n_features_encoded", ""),
+                "positive_rate": sample.get("positive_rate", ""),
+                "accuracy_mean": self._mean_rows(group, "accuracy_mean"),
+                "tree_nodes_mean": self._mean_rows(group, "tree_nodes_mean"),
+                "mean_axp_length": self._mean_rows(group, "mean_axp_length"),
+                "train_time_mean": self._mean_rows(group, "train_time_mean"),
+                "axp_time_mean": self._mean_rows(group, "axp_time_mean"),
+                "sat_vars_mean": self._mean_rows(group, "sat_vars_mean"),
+                "sat_clauses_mean": self._mean_rows(group, "sat_clauses_mean"),
+            })
+        return out
+
+    def _pareto_front(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        candidates = [r for r in rows if not math.isnan(self._numeric(r, "accuracy_mean"))]
+        out: List[Dict[str, Any]] = []
+        for row in candidates:
+            acc = self._numeric(row, "accuracy_mean")
+            size = self._numeric(row, "tree_nodes_mean")
+            axp = self._numeric(row, "mean_axp_length")
+            dominated_size = False
+            dominated_axp = False
+            for other in candidates:
+                if other is row:
+                    continue
+                oacc = self._numeric(other, "accuracy_mean")
+                osize = self._numeric(other, "tree_nodes_mean")
+                oaxp = self._numeric(other, "mean_axp_length")
+                if not math.isnan(size) and not math.isnan(osize):
+                    if oacc >= acc and osize <= size and (oacc > acc or osize < size):
+                        dominated_size = True
+                if not math.isnan(axp) and not math.isnan(oaxp):
+                    if oacc >= acc and oaxp <= axp and (oacc > acc or oaxp < axp):
+                        dominated_axp = True
+            if not dominated_size or not dominated_axp:
+                out.append({**row, "pareto_accuracy_size": not dominated_size, "pareto_accuracy_axp": not dominated_axp})
+        return out
+
+    def _dataset_win_loss(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        by_dataset = self._group_by(rows, ["dataset"])
+        out: List[Dict[str, Any]] = []
+        for (dataset,), group in sorted(by_dataset.items()):
+            base = next((r for r in group if r.get("method_label") == "sklearn DT"), None)
+            base_acc = self._numeric(base or {}, "accuracy_mean")
+            for row in group:
+                if row.get("method_label") == "sklearn DT":
+                    continue
+                acc = self._numeric(row, "accuracy_mean")
+                delta = acc - base_acc if not math.isnan(acc) and not math.isnan(base_acc) else math.nan
+                if math.isnan(delta):
+                    outcome = "unknown"
+                elif delta > 1e-12:
+                    outcome = "win"
+                elif delta < -1e-12:
+                    outcome = "loss"
+                else:
+                    outcome = "tie"
+                out.append({
+                    "dataset": dataset,
+                    "method_label": row.get("method_label"),
+                    "category": row.get("category"),
+                    "depth": row.get("depth"),
+                    "baseline_accuracy": base_acc,
+                    "method_accuracy": acc,
+                    "accuracy_delta_vs_sklearn_dt7": delta,
+                    "outcome": outcome,
+                })
+        return out
+
+    @staticmethod
     def _write_rows_csv(path: str, rows: List[Dict[str, Any]]) -> None:
-        fieldnames = [
-            "dataset", "method_key", "method_label", "depth", "category",
-            "acc", "acc_std", "size", "expl", "train_time",
-            "axp_valid_rate", "axp_minimal_rate", "n_success", "n_fail",
-            "axp_backend", "theorem_certified", "path_certificate",
-            "rejected_reason", "theorem_mode_used", "random_state", "n_runs",
-            "train_test_split_protocol",
-        ]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        keys: List[str] = []
+        for row in rows:
+            for key in row.keys():
+                if key not in keys:
+                    keys.append(key)
+        fieldnames = list(dict.fromkeys(REQUIRED_RESULT_COLUMNS + keys)) if rows else REQUIRED_RESULT_COLUMNS
         with open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
             w.writeheader()
@@ -1262,128 +1681,260 @@ class LanguageComparisonBenchmark:
 
     @staticmethod
     def _write_rows_json(path: str, rows: List[Dict[str, Any]]) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(rows, f, indent=2, default=json_default)
 
     @staticmethod
     def _latex_escape(value: Any) -> str:
-        return str(value).replace("_", r"\_")
+        return str(value).replace("_", r"\_").replace("%", r"\%")
 
     @staticmethod
-    def _write_rows_latex(path: str, rows: List[Dict[str, Any]], caption: str) -> None:
+    def _fmt_latex(value: Any) -> str:
+        try:
+            f = float(value)
+            if math.isnan(f):
+                return "--"
+            return f"{f:.4g}"
+        except (TypeError, ValueError):
+            return LanguageComparisonBenchmark._latex_escape(value)
+
+    @staticmethod
+    def _write_simple_latex(path: str, rows: List[Dict[str, Any]], columns: Sequence[str], caption: str) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(r"\begin{table}[htbp]" + "\n")
             f.write(r"\centering\scriptsize" + "\n")
-            f.write(r"\begin{tabular}{llllrrrlll}" + "\n")
+            f.write(r"\begin{tabular}{" + "l" * len(columns) + "}\n")
             f.write(r"\toprule" + "\n")
-            f.write(
-                r"Dataset & Method & Depth & Cert. & Acc. & Size & AXp & Backend & Path Cert. & Category \\ \midrule" + "\n"
-            )
-            for row in rows:
-                acc = row.get("acc", math.nan)
-                size = row.get("size", math.nan)
-                expl = row.get("expl", math.nan)
-                f.write(
-                    f"{LanguageComparisonBenchmark._latex_escape(row.get('dataset',''))} & "
-                    f"{LanguageComparisonBenchmark._latex_escape(row.get('method_label',''))} & "
-                    f"{row.get('depth','')} & "
-                    f"{row.get('theorem_certified', False)} & "
-                    f"{float(acc):.4f} & "
-                    f"{float(size):.1f} & "
-                    f"{float(expl):.2f} & "
-                    f"{LanguageComparisonBenchmark._latex_escape(row.get('axp_backend',''))} & "
-                    f"{LanguageComparisonBenchmark._latex_escape(row.get('path_certificate',''))} & "
-                    f"{LanguageComparisonBenchmark._latex_escape(row.get('category',''))} \\\n"
-                )
+            f.write(" & ".join(LanguageComparisonBenchmark._latex_escape(c) for c in columns) + r" \\ \midrule" + "\n")
+            for row in rows[:80]:
+                f.write(" & ".join(LanguageComparisonBenchmark._fmt_latex(row.get(c, "")) for c in columns) + r" \\" + "\n")
             f.write(r"\bottomrule" + "\n")
             f.write(r"\end{tabular}" + "\n")
-            f.write(rf"\caption{{{caption}}}" + "\n")
+            f.write(rf"\caption{{{LanguageComparisonBenchmark._latex_escape(caption)}}}" + "\n")
             f.write(r"\end{table}" + "\n")
+
+    @staticmethod
+    def _write_png(path: str, width: int, height: int, pixels: bytearray) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        def chunk(tag: bytes, data: bytes) -> bytes:
+            return struct.pack("!I", len(data)) + tag + data + struct.pack("!I", zlib.crc32(tag + data) & 0xffffffff)
+        raw = b"".join(b"\x00" + bytes(pixels[y * width * 3:(y + 1) * width * 3]) for y in range(height))
+        png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+        with open(path, "wb") as f:
+            f.write(png)
+
+    @staticmethod
+    def _canvas(width: int = 1200, height: int = 800, color: Tuple[int, int, int] = (255, 255, 255)) -> bytearray:
+        return bytearray(color * (width * height))
+
+    @staticmethod
+    def _rect(pixels: bytearray, width: int, height: int, x0: int, y0: int, x1: int, y1: int, color: Tuple[int, int, int]) -> None:
+        x0, x1 = max(0, min(x0, width)), max(0, min(x1, width))
+        y0, y1 = max(0, min(y0, height)), max(0, min(y1, height))
+        for y in range(y0, y1):
+            row = y * width * 3
+            for x in range(x0, x1):
+                i = row + x * 3
+                pixels[i:i+3] = bytes(color)
+
+    @staticmethod
+    def _bar_plot(path: str, labels: Sequence[str], values: Sequence[float]) -> None:
+        width, height = 1200, 800
+        px = LanguageComparisonBenchmark._canvas(width, height)
+        LanguageComparisonBenchmark._rect(px, width, height, 90, 80, 95, 700, (0, 0, 0))
+        LanguageComparisonBenchmark._rect(px, width, height, 90, 695, 1120, 700, (0, 0, 0))
+        clean_vals = [0.0 if v is None or math.isnan(float(v)) else max(0.0, float(v)) for v in values]
+        vmax = max(clean_vals) if clean_vals else 1.0
+        vmax = vmax if vmax > 0 else 1.0
+        n = max(1, len(clean_vals))
+        slot = 1000 / n
+        colors = [(47, 112, 193), (68, 157, 91), (204, 120, 50), (150, 90, 180), (200, 70, 90), (80, 160, 170), (120, 120, 120)]
+        for i, v in enumerate(clean_vals):
+            x0 = int(110 + i * slot)
+            x1 = int(110 + (i + 0.72) * slot)
+            bar_h = int((v / vmax) * 560)
+            LanguageComparisonBenchmark._rect(px, width, height, x0, 695 - bar_h, x1, 695, colors[i % len(colors)])
+        LanguageComparisonBenchmark._write_png(path, width, height, px)
+
+    @staticmethod
+    def _scatter_plot(path: str, xs: Sequence[float], ys: Sequence[float]) -> None:
+        width, height = 1200, 800
+        px = LanguageComparisonBenchmark._canvas(width, height)
+        LanguageComparisonBenchmark._rect(px, width, height, 90, 80, 95, 700, (0, 0, 0))
+        LanguageComparisonBenchmark._rect(px, width, height, 90, 695, 1120, 700, (0, 0, 0))
+        pairs = [(float(x), float(y)) for x, y in zip(xs, ys) if x is not None and y is not None and not math.isnan(float(x)) and not math.isnan(float(y))]
+        if not pairs:
+            LanguageComparisonBenchmark._write_png(path, width, height, px); return
+        minx, maxx = min(x for x, _ in pairs), max(x for x, _ in pairs)
+        miny, maxy = min(y for _, y in pairs), max(y for _, y in pairs)
+        if minx == maxx: maxx = minx + 1.0
+        if miny == maxy: maxy = miny + 1.0
+        colors = [(47, 112, 193), (68, 157, 91), (204, 120, 50), (150, 90, 180), (200, 70, 90)]
+        for i, (x, y) in enumerate(pairs):
+            px_x = int(100 + (x - minx) / (maxx - minx) * 1000)
+            px_y = int(690 - (y - miny) / (maxy - miny) * 590)
+            LanguageComparisonBenchmark._rect(px, width, height, px_x - 6, px_y - 6, px_x + 7, px_y + 7, colors[i % len(colors)])
+        LanguageComparisonBenchmark._write_png(path, width, height, px)
+
+    @staticmethod
+    def _heatmap_plot(path: str, rows: List[Dict[str, Any]]) -> None:
+        width, height = 1200, 800
+        px = LanguageComparisonBenchmark._canvas(width, height)
+        methods = sorted({str(r.get("method_label")) for r in rows}) or ["none"]
+        datasets = sorted({str(r.get("dataset")) for r in rows}) or ["none"]
+        cell_w = max(1, min(90, 1000 // max(1, len(methods))))
+        cell_h = max(1, min(70, 620 // max(1, len(datasets))))
+        outcome_color = {"win": (72, 160, 90), "tie": (210, 185, 80), "loss": (190, 75, 75), "unknown": (170, 170, 170)}
+        lookup = {(str(r.get("dataset")), str(r.get("method_label"))): str(r.get("outcome")) for r in rows}
+        for iy, ds in enumerate(datasets):
+            for ix, method in enumerate(methods):
+                color = outcome_color.get(lookup.get((ds, method), "unknown"), (170, 170, 170))
+                x0, y0 = 110 + ix * cell_w, 90 + iy * cell_h
+                LanguageComparisonBenchmark._rect(px, width, height, x0, y0, x0 + cell_w - 2, y0 + cell_h - 2, color)
+        LanguageComparisonBenchmark._write_png(path, width, height, px)
+
+    def _write_figures(self, figure_dir: str, rows: List[Dict[str, Any]], summary: List[Dict[str, Any]], win_loss: List[Dict[str, Any]]) -> None:
+        os.makedirs(figure_dir, exist_ok=True)
+        labels = [str(r.get("method_label")) for r in summary]
+        self._bar_plot(os.path.join(figure_dir, "accuracy_by_method.png"), labels, [self._numeric(r, "accuracy_mean") for r in summary])
+        self._bar_plot(os.path.join(figure_dir, "tree_size_by_method.png"), labels, [self._numeric(r, "tree_nodes_mean") for r in summary])
+        self._bar_plot(os.path.join(figure_dir, "axp_length_by_method.png"), labels, [self._numeric(r, "mean_axp_length") for r in summary])
+        self._bar_plot(os.path.join(figure_dir, "train_time_by_method.png"), labels, [self._numeric(r, "train_time_mean") for r in summary])
+        self._bar_plot(os.path.join(figure_dir, "axp_time_by_method.png"), labels, [self._numeric(r, "axp_time_mean") for r in summary])
+        self._scatter_plot(os.path.join(figure_dir, "accuracy_vs_size_pareto.png"), [self._numeric(r, "tree_nodes_mean") for r in rows], [self._numeric(r, "accuracy_mean") for r in rows])
+        self._scatter_plot(os.path.join(figure_dir, "accuracy_vs_axp_pareto.png"), [self._numeric(r, "mean_axp_length") for r in rows], [self._numeric(r, "accuracy_mean") for r in rows])
+        self._scatter_plot(os.path.join(figure_dir, "runtime_vs_dataset_size.png"), [self._numeric(r, "n_samples") for r in rows], [self._numeric(r, "train_time_mean") for r in rows])
+        self._heatmap_plot(os.path.join(figure_dir, "win_loss_heatmap.png"), win_loss)
+        status = Counter(str(r.get("category")) for r in rows)
+        self._bar_plot(os.path.join(figure_dir, "theorem_vs_auxiliary_summary.png"), list(status.keys()), [float(v) for v in status.values()])
+
+    def _write_report(self, report_dir: str, rows: List[Dict[str, Any]], summary: List[Dict[str, Any]], theorem_rows: List[Dict[str, Any]], auxiliary_rows: List[Dict[str, Any]]) -> None:
+        os.makedirs(report_dir, exist_ok=True)
+        md_path = os.path.join(report_dir, "benchmark_summary.md")
+        html_path = os.path.join(report_dir, "benchmark_summary.html")
+        lines = [
+            "# GSNH-MDT Language-Family Benchmark Summary",
+            "",
+            "This report is generated by `scripts/benchmark_dl8_languages_updated.py` as a scientific evidence package for comparing GSNH-MDT split-language families.",
+            "",
+            "## How to read the metrics",
+            "",
+            "- **Accuracy** is held-out test-set classification accuracy under a deterministic stratified split protocol.",
+            "- **Tree size** is the number of fitted tree nodes; smaller trees are usually easier to inspect.",
+            "- **AXp length** is the mean number of input features retained in extracted abductive explanations; shorter AXps are more compact explanations.",
+            "- **Train time** measures model fitting time. **AXp time** measures explanation extraction time on sampled test instances.",
+            "- **SAT variables/clauses** summarize the certificate/path encodings used during AXp checks when metadata is available.",
+            "- **Complexity metrics are measured empirical complexity, not formal Big-O proofs.**",
+            "",
+            "## Theorem boundary",
+            "",
+            "The theorem-certified table is intentionally strict: rows require `theorem_mode_used=True` and `theorem_certified=True`; Square2CNF additionally requires `axp_backend=two_sat` and `path_certificate=2cnf`. Affine remains auxiliary until a verified Python GF(2) certificate checker exists, and BestPN remains empirical by default.",
+            "",
+            f"- Full result rows: {len(rows)}",
+            f"- Theorem-certified rows: {len(theorem_rows)}",
+            f"- Auxiliary/baseline/empirical rows: {len(auxiliary_rows)}",
+            "",
+            "## Method summary",
+            "",
+            "| Method | Category | Depth | Accuracy | Nodes | AXp length | Train time |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ]
+        for row in summary:
+            lines.append(
+                f"| {row.get('method_label')} | {row.get('category')} | {row.get('depth')} | "
+                f"{self._fmt_latex(row.get('accuracy_mean'))} | {self._fmt_latex(row.get('tree_nodes_mean'))} | "
+                f"{self._fmt_latex(row.get('mean_axp_length'))} | {self._fmt_latex(row.get('train_time_mean'))} |"
+            )
+        md = "\n".join(lines) + "\n"
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(md)
+        html = "<html><head><meta charset='utf-8'><title>GSNH-MDT Benchmark Summary</title></head><body>" + "\n".join(
+            f"<p>{line}</p>" if line and not line.startswith("#") and not line.startswith("|") and not line.startswith("-") else
+            (f"<h1>{line[2:]}</h1>" if line.startswith("# ") else f"<h2>{line[3:]}</h2>" if line.startswith("## ") else f"<pre>{line}</pre>")
+            for line in lines
+        ) + "</body></html>"
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html)
 
     def save_outputs(self, output_dir: str):
         os.makedirs(output_dir, exist_ok=True)
+        table_dir = os.path.join(output_dir, "tables")
+        figure_dir = os.path.join(output_dir, "figures")
+        report_dir = os.path.join(output_dir, "report")
+        os.makedirs(table_dir, exist_ok=True)
+        os.makedirs(figure_dir, exist_ok=True)
+        os.makedirs(report_dir, exist_ok=True)
 
         rows = self._result_rows()
         theorem_rows = [row for row in rows if self._is_theorem_row(row)]
         auxiliary_rows = [row for row in rows if not self._is_theorem_row(row)]
+        summary = self._summary_by_method(rows)
+        complexity_by_method = [dict(r) for r in summary]
+        complexity_by_dataset = self._complexity_by_dataset(rows)
+        pareto = self._pareto_front(rows)
+        win_loss = self._dataset_win_loss(rows)
 
-        full_json_path = os.path.join(output_dir, "full_results.json")
-        full_csv_path = os.path.join(output_dir, "full_results.csv")
-        theorem_json_path = os.path.join(output_dir, "theorem_certified_results.json")
-        theorem_csv_path = os.path.join(output_dir, "theorem_certified_results.csv")
-        auxiliary_json_path = os.path.join(output_dir, "auxiliary_results.json")
-        auxiliary_csv_path = os.path.join(output_dir, "auxiliary_results.csv")
-        theorem_tex_path = os.path.join(output_dir, "theorem_certified_results.tex")
-        auxiliary_tex_path = os.path.join(output_dir, "auxiliary_results.tex")
+        self._write_rows_csv(os.path.join(output_dir, "full_results.csv"), rows)
+        self._write_rows_csv(os.path.join(output_dir, "summary_by_method.csv"), summary)
+        self._write_rows_csv(os.path.join(output_dir, "theorem_certified_results.csv"), theorem_rows)
+        self._write_rows_csv(os.path.join(output_dir, "auxiliary_results.csv"), auxiliary_rows)
+        self._write_rows_csv(os.path.join(output_dir, "complexity_by_method.csv"), complexity_by_method)
+        self._write_rows_csv(os.path.join(output_dir, "complexity_by_dataset.csv"), complexity_by_dataset)
+        self._write_rows_csv(os.path.join(output_dir, "pareto_front.csv"), pareto)
+        self._write_rows_csv(os.path.join(output_dir, "dataset_win_loss.csv"), win_loss)
 
-        self._write_rows_json(full_json_path, rows)
-        self._write_rows_csv(full_csv_path, rows)
-        self._write_rows_json(theorem_json_path, theorem_rows)
-        self._write_rows_csv(theorem_csv_path, theorem_rows)
-        self._write_rows_json(auxiliary_json_path, auxiliary_rows)
-        self._write_rows_csv(auxiliary_csv_path, auxiliary_rows)
-        self._write_rows_latex(theorem_tex_path, theorem_rows, "Theorem-certified GSNH-MDT benchmark rows.")
-        self._write_rows_latex(auxiliary_tex_path, auxiliary_rows, "Auxiliary, prototype, fallback, or non-certified GSNH-MDT benchmark rows.")
+        self._write_rows_json(os.path.join(output_dir, "full_results.json"), rows)
+        self._write_rows_json(os.path.join(output_dir, "theorem_certified_results.json"), theorem_rows)
+        self._write_rows_json(os.path.join(output_dir, "auxiliary_results.json"), auxiliary_rows)
 
-        # JSON
+        self._write_simple_latex(os.path.join(table_dir, "main_summary.tex"), summary,
+                                 ["method_label", "category", "depth", "accuracy_mean", "tree_nodes_mean", "mean_axp_length", "train_time_mean"],
+                                 "Main GSNH-MDT language-family summary.")
+        self._write_simple_latex(os.path.join(table_dir, "theorem_certified.tex"), theorem_rows,
+                                 ["dataset", "method_label", "depth", "accuracy_mean", "tree_nodes_mean", "mean_axp_length", "axp_backend", "path_certificate"],
+                                 "Strict theorem-certified rows only.")
+        self._write_simple_latex(os.path.join(table_dir, "auxiliary.tex"), auxiliary_rows,
+                                 ["dataset", "method_label", "category", "depth", "accuracy_mean", "axp_backend", "path_certificate"],
+                                 "Auxiliary, empirical, baseline, and non-certified rows.")
+        self._write_simple_latex(os.path.join(table_dir, "complexity_summary.tex"), complexity_by_method,
+                                 ["method_label", "depth", "tree_nodes_mean", "leaves_mean", "avg_leaf_depth", "total_literals", "sat_vars_mean", "sat_clauses_mean"],
+                                 "Measured structural and SAT-encoding complexity summary.")
+        self._write_simple_latex(os.path.join(table_dir, "per_dataset_accuracy.tex"), rows,
+                                 ["dataset", "method_label", "depth", "accuracy_mean", "tree_nodes_mean", "mean_axp_length"],
+                                 "Per-dataset accuracy and compactness.")
+
+        # Backward-compatible filenames from the older script.
         payload = {
             "methods": [asdict(m) for m in self.methods],
             "depths": self.depths,
             "n_runs": self.n_runs,
             "random_state": self.rs,
             "dataset_meta": self.dataset_meta_,
-            "results": {
-                ds: {k: asdict(v) for k, v in r.items()}
-                for ds, r in self.results_.items()
-            },
+            "results": {ds: {k: asdict(v) for k, v in r.items()} for ds, r in self.results_.items()},
             "failures": self.failures_,
         }
-        json_path = os.path.join(output_dir, "language_comparison_results.json")
-        with open(json_path, "w", encoding="utf-8") as f:
+        with open(os.path.join(output_dir, "language_comparison_results.json"), "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, default=json_default)
+        self._write_rows_csv(os.path.join(output_dir, "language_comparison_results.csv"), rows)
+        with open(os.path.join(output_dir, "language_comparison_results.tex"), "w", encoding="utf-8") as f:
+            f.write(self.generate_latex())
+        self._write_simple_latex(os.path.join(output_dir, "theorem_certified_results.tex"), theorem_rows,
+                                 ["dataset", "method_label", "depth", "accuracy_mean", "axp_backend", "path_certificate"],
+                                 "Theorem-certified GSNH-MDT benchmark rows.")
+        self._write_simple_latex(os.path.join(output_dir, "auxiliary_results.tex"), auxiliary_rows,
+                                 ["dataset", "method_label", "category", "depth", "accuracy_mean", "axp_backend"],
+                                 "Auxiliary, prototype, fallback, or non-certified GSNH-MDT benchmark rows.")
 
-        # CSV long format
-        csv_path = os.path.join(output_dir, "language_comparison_results.csv")
-        with open(csv_path, "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow([
-                "dataset", "method_key", "method_label", "depth", "category",
-                "acc", "acc_std", "size", "expl", "train_time",
-                "axp_valid_rate", "axp_minimal_rate", "n_success", "n_fail",
-                "axp_backend", "theorem_certified", "path_certificate",
-                "rejected_reason", "theorem_mode_used",
-            ])
-            category = {m.label: m.category for m in self.methods}
-            for ds, r in self.results_.items():
-                for key, res in r.items():
-                    if key == "sklearn_dt7":
-                        label, depth, cat = "sklearn DT", 7, "baseline"
-                    else:
-                        label_part = key.replace("gsnh_", "")
-                        label, depth_s = label_part.rsplit("_d", 1)
-                        depth = int(depth_s)
-                        cat = category.get(label, "")
-                    w.writerow([
-                        ds, key, label, depth, cat,
-                        res.acc, res.acc_std, res.size, res.expl, res.train_time,
-                        res.axp_valid_rate, res.axp_minimal_rate,
-                        res.n_success, res.n_fail,
-                        res.axp_backend, res.theorem_certified, res.path_certificate,
-                        res.rejected_reason, res.theorem_mode_used,
-                    ])
+        self._write_figures(figure_dir, rows, summary, win_loss)
+        self._write_report(report_dir, rows, summary, theorem_rows, auxiliary_rows)
 
-        # LaTeX
-        latex = self.generate_latex()
-        tex_path = os.path.join(output_dir, "language_comparison_results.tex")
-        with open(tex_path, "w", encoding="utf-8") as f:
-            f.write(latex)
-
-        print(f"\n✓ Saved JSON:  {json_path}")
-        print(f"✓ Saved CSV:   {csv_path}")
-        print(f"✓ Saved LaTeX: {tex_path}")
-        print(f"✓ Saved full theorem-aware JSON/CSV: {full_json_path}, {full_csv_path}")
-        print(f"✓ Saved theorem-certified JSON/CSV/LaTeX: {theorem_json_path}, {theorem_csv_path}, {theorem_tex_path}")
-        print(f"✓ Saved auxiliary JSON/CSV/LaTeX: {auxiliary_json_path}, {auxiliary_csv_path}, {auxiliary_tex_path}")
+        print(f"\n✓ Saved evidence package under: {output_dir}")
+        print("  CSV: full_results, summary_by_method, theorem_certified_results, auxiliary_results, complexity, pareto, win/loss")
+        print("  LaTeX: tables/main_summary.tex, theorem_certified.tex, auxiliary.tex, complexity_summary.tex, per_dataset_accuracy.tex")
+        print("  Figures: figures/*.png")
+        print("  Report: report/benchmark_summary.html and report/benchmark_summary.md")
 
 
 # =============================================================================
@@ -1391,12 +1942,8 @@ class LanguageComparisonBenchmark:
 # =============================================================================
 
 def find_data_dir(explicit: Optional[str]) -> Optional[str]:
-    if explicit:
-        return explicit if os.path.isdir(explicit) else None
-    for d in ["data", "./data", "../data"]:
-        if os.path.isdir(d) and glob.glob(os.path.join(d, "*.dl8")):
-            return d
-    return None
+    """Backward-compatible wrapper for resolved data directory."""
+    return str(resolve_data_dir(explicit))
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -1452,20 +1999,33 @@ def main(argv: Optional[Sequence[str]] = None):
     print("\n[1] Importing GSNH...")
     gsnh = import_gsnh()
 
-    data_dir = find_data_dir(args.data_dir)
-    if data_dir is None:
-        print("✗ No data directory with .dl8 files found.")
-        return None
-
-    print(f"\n[2] Loading .dl8 files from {data_dir}/...")
-    datasets = load_all_dl8(
-        data_dir,
-        max_datasets=args.max_datasets,
-        dataset_filter=args.datasets,
-    )
+    datasets = None
+    try:
+        data_dir = resolve_data_dir(args.data_dir)
+        print()
+        print(f"[2] Resolved data directory: {data_dir}")
+        discovered_files = discover_dl8_files(data_dir)
+        print(f"[2] Discovered {len(discovered_files)} .dl8 files recursively")
+        print(f"[2] Loading .dl8 files from {data_dir}/...")
+        datasets = load_all_dl8(
+            data_dir,
+            max_datasets=args.max_datasets,
+            dataset_filter=args.datasets,
+        )
+    except FileNotFoundError as exc:
+        if not args.quick:
+            print(f"✗ {exc}")
+            return None
+        print(f"⚠ {exc}")
+        print("[2] --quick mode: using deterministic synthetic smoke dataset instead.")
+        datasets = make_quick_synthetic_datasets()
     if not datasets:
-        print("No datasets loaded.")
-        return None
+        if args.quick:
+            print("[2] --quick mode: no .dl8 datasets loaded; using deterministic synthetic smoke dataset instead.")
+            datasets = make_quick_synthetic_datasets()
+        else:
+            print("No datasets loaded.")
+            return None
 
     print(
         f"\n[3] Running benchmark: {len(datasets)} datasets × {args.runs} runs × "

@@ -10,8 +10,11 @@ import os
 import json
 import numpy as np
 
-# Add RS root so we can import the monolith
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+from data_path import DATA_DIR, RS_ROOT
+from golden_utils import find_dataset_file
+
+# Add repo root so we can import the package/monolith
+sys.path.insert(0, RS_ROOT)
 from gsnh_mdt.tree.builder import ExpertGSNHTree
 from gsnh_mdt.tree.stopping import StoppingCriteria
 from gsnh_mdt.types import LanguageFamily
@@ -129,14 +132,15 @@ def capture_reproducibility(X, y, seed=42):
 
 
 def main():
-    rs_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
     datasets = {
-        'lymph': os.path.join(rs_root, 'data', 'lymph.dl8'),
-        'hepatitis': os.path.join(rs_root, 'data', 'hepatitis.dl8'),
-        'vote': os.path.join(rs_root, 'data', 'vote.dl8'),
+        'lymph': find_dataset_file('lymph'),
+        'hepatitis': find_dataset_file('hepatitis'),
+        'vote': find_dataset_file('vote'),
     }
 
-    golden = {}
+    golden = {
+        "_comment": "Post-theorem-boundary deterministic golden baselines."
+    }
     for name, full_path in datasets.items():
         if not os.path.exists(full_path):
             print(f"  SKIP {name}: file not found at {full_path}")
