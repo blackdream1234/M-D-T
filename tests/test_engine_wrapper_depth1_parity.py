@@ -33,6 +33,7 @@ def simple_affine_xor_data():
 
 
 def simple_square2cnf_or_data():
+    # y = (x0 >= 0.5) OR (x1 >= 0.5); parity is prediction/score only.
     return (
         np.asarray([[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]], dtype=float),
         np.asarray([0, 1, 1, 1], dtype=int),
@@ -149,6 +150,7 @@ def test_depth_one_affine_xor_predictions_scores_and_summary_match_real_rust(fam
 @pytest.mark.parametrize("family", ["Square2CNF"])
 def test_depth_one_square2cnf_or_predictions_scores_and_summary_match_real_rust(family):
     pytest.importorskip("_rust_gsnh")
+    # Do not assert split-object equality: equally scoring formulas may differ.
     X, y = simple_square2cnf_or_data()
 
     py_clf = python_depth_one_classifier(family).fit(X, y)

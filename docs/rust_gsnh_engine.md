@@ -823,8 +823,9 @@ cases use tiny finite numeric datasets, `max_depth=1`, `max_arity=2`,
 `min_samples_leaf=1`, `min_samples_split=2`, disable Python supervised binning,
 disable 3D search, and compare Python/Rust wrapper predictions and scores when
 `_rust_gsnh` is installed. Rust summary invariants are still checked for each
-split case. Affine remains an auxiliary empirical family here; this parity test
-is not a theorem certificate claim.
+split case. The Square2CNF parity case intentionally compares predictions and
+scores only, not split-object identity. Affine remains an auxiliary empirical
+family here; this parity test is not a theorem certificate claim.
 
 No depth-1 wrapper family remains deferred. Deeper parity remains deferred
 because Python still has additional binning, stopping, pruning, and search
