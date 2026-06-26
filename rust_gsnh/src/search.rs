@@ -1,0 +1,1594 @@
+//! Deterministic 1D threshold candidate generation.
+//!
+//! This is the smallest safe search milestone: single-feature scalar threshold
+//! predicates scored with the Rust formulas that mirror Python.  It is not full
+//! GSNH tree search and does not implement Horn/AntiHorn/SquareCNF/Affine
+//! composition.
+
+use crate::{
+    class_counts, information_gain, negative_label_mask, penalized_gain, positive_label_mask,
+    BitSet, ClassCounts, ComparisonOp, ComposedPredicate, Dataset, MaskOp, ThresholdPredicate,
+};
+
+/// A scored 1D threshold split candidate.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SplitCandidate {
+    pub feature_index: usize,
+    pub threshold: f64,
+    pub op: ComparisonOp,
+    pub score: f64,
+    pub inside_counts: ClassCounts,
+    pub outside_counts: ClassCounts,
+}
+
+/// Best split plus inside/outside row masks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BestSplit {
+    pub candidate: SplitCandidate,
+    pub inside_mask: BitSet,
+    pub outside_mask: BitSet,
+}
+
+/// A scored fixed composed-predicate candidate.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComposedCandidate {
+    pub predicate: ComposedPredicate,
+    pub score: f64,
+    pub inside_counts: ClassCounts,
+    pub outside_counts: ClassCounts,
+}
+
+/// Evaluated composed predicate plus inside/outside row masks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EvaluatedComposedPredicate {
+    pub candidate: ComposedCandidate,
+    pub inside_mask: BitSet,
+    pub outside_mask: BitSet,
+}
+
+/// Generate deterministic 1D threshold candidates for a feature.
+///
+/// Matches the exact-value Python convention for low-cardinality node-local
+/// features: sorted unique values produce midpoints between adjacent unique
+/// values. Constant features produce no thresholds.
+pub fn generate_1d_thresholds(dataset: &Dataset, feature_index: usize) -> Result<Vec<f64>, String> {
+    if feature_index >= dataset.n_features() {
+        return Err(format!(
+            "feature index {} out of range for dataset with {} features",
+            feature_index,
+            dataset.n_features()
+        ));
+    }
+
+    let mut values = dataset.column(feature_index);
+    if values.iter().any(|value| value.is_nan()) {
+        return Err("cannot generate deterministic thresholds for NaN feature values".to_string());
+    }
+    values.sort_by(|a, b| a.total_cmp(b));
+    values.dedup_by(|a, b| *a == *b);
+
+    if values.len() <= 1 {
+        return Ok(Vec::new());
+    }
+
+    Ok(values
+        .windows(2)
+        .map(|pair| (pair[0] + pair[1]) / 2.0)
+        .collect())
+}
+
+/// Evaluate and score a single 1D threshold predicate.
+///
+/// The stored score is the Python default tree-search objective for 1D splits:
+/// information gain followed by BIC-style `penalized_gain` with arity 1. This
+/// raw evaluator does not apply `min_samples_leaf`; use
+/// [`evaluate_1d_candidate_with_min_leaf`] when matching Python candidate
+/// validity.
+pub fn evaluate_1d_candidate(
+    dataset: &Dataset,
+    predicate: ThresholdPredicate,
+) -> Result<SplitCandidate, String> {
+    let (candidate, _, _) = evaluate_1d_candidate_parts(dataset, predicate)?;
+    Ok(candidate)
+}
+
+/// Evaluate and score a single 1D threshold predicate only if both branches
+/// satisfy Python's `min_samples_leaf` sample-count constraint.
+///
+/// Returns `Ok(None)` when either side has fewer than `min_samples_leaf` rows.
+/// A value of `0` disables the leaf-size rejection, matching the literal
+/// `count >= 0` rule.
+pub fn evaluate_1d_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: ThresholdPredicate,
+    min_samples_leaf: usize,
+) -> Result<Option<SplitCandidate>, String> {
+    let (candidate, inside_mask, outside_mask) = evaluate_1d_candidate_parts(dataset, predicate)?;
+    if !satisfies_min_leaf(&inside_mask, &outside_mask, min_samples_leaf) {
+        return Ok(None);
+    }
+    Ok(Some(candidate))
+}
+
+/// Return the best deterministic 1D split for one feature with
+/// `min_samples_leaf = 1` for backward-compatible non-empty branches.
+pub fn best_1d_split_for_feature(
+    dataset: &Dataset,
+    feature_index: usize,
+) -> Result<Option<BestSplit>, String> {
+    best_1d_split_for_feature_with_min_leaf(dataset, feature_index, 1)
+}
+
+/// Return the best deterministic 1D split for one feature, if any positive
+/// penalized-gain split satisfies `min_samples_leaf` on both branches.
+pub fn best_1d_split_for_feature_with_min_leaf(
+    dataset: &Dataset,
+    feature_index: usize,
+    min_samples_leaf: usize,
+) -> Result<Option<BestSplit>, String> {
+    let thresholds = generate_1d_thresholds(dataset, feature_index)?;
+    let mut best: Option<BestSplit> = None;
+
+    for threshold in thresholds {
+        for op in [ComparisonOp::LessThan, ComparisonOp::GreaterEqual] {
+            let predicate = ThresholdPredicate {
+                feature_index,
+                threshold,
+                op,
+            };
+            let (candidate, inside_mask, outside_mask) =
+                evaluate_1d_candidate_parts(dataset, predicate)?;
+            if !satisfies_min_leaf(&inside_mask, &outside_mask, min_samples_leaf) {
+                continue;
+            }
+            if candidate.score <= 0.0 {
+                continue;
+            }
+            let split = BestSplit {
+                candidate,
+                inside_mask,
+                outside_mask,
+            };
+            if should_replace(best.as_ref().map(|s| &s.candidate), &split.candidate) {
+                best = Some(split);
+            }
+        }
+    }
+
+    Ok(best)
+}
+
+/// Return the best deterministic 1D split across all features with
+/// `min_samples_leaf = 1` for backward-compatible non-empty branches.
+pub fn best_1d_split(dataset: &Dataset) -> Result<Option<BestSplit>, String> {
+    best_1d_split_with_min_leaf(dataset, 1)
+}
+
+/// Return the best deterministic 1D split across all features, if any positive
+/// penalized-gain split satisfies `min_samples_leaf` on both branches.
+pub fn best_1d_split_with_min_leaf(
+    dataset: &Dataset,
+    min_samples_leaf: usize,
+) -> Result<Option<BestSplit>, String> {
+    let mut best: Option<BestSplit> = None;
+    for feature_index in 0..dataset.n_features() {
+        if let Some(split) =
+            best_1d_split_for_feature_with_min_leaf(dataset, feature_index, min_samples_leaf)?
+        {
+            if should_replace(best.as_ref().map(|s| &s.candidate), &split.candidate) {
+                best = Some(split);
+            }
+        }
+    }
+    Ok(best)
+}
+
+/// Evaluate a fixed ConjUI composed predicate with Python-matched scoring.
+///
+/// This helper is intentionally ConjUI-only: `predicate.op` must be
+/// `MaskOp::And`. It evaluates one already-constructed predicate, enforces
+/// `min_samples_leaf` on both branches, computes class counts, applies
+/// information gain followed by BIC-style `penalized_gain`, and returns `None`
+/// for invalid/nonpositive candidates.
+pub fn evaluate_composed_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: ComposedPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+) -> Result<Option<EvaluatedComposedPredicate>, String> {
+    evaluate_fixed_composed_candidate_with_expected_op(
+        dataset,
+        predicate,
+        min_samples_leaf,
+        arity,
+        MaskOp::And,
+        "ConjUI",
+    )
+}
+
+/// Evaluate a fixed Affine/XOR composed predicate with Python-matched scoring.
+///
+/// This helper is intentionally Affine-mask-only: `predicate.op` must be
+/// `MaskOp::Xor`. It does not enumerate affine predicates, construct GF(2)
+/// bases, or build theorem certificates.
+pub fn evaluate_affine_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: ComposedPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+) -> Result<Option<EvaluatedComposedPredicate>, String> {
+    evaluate_fixed_composed_candidate_with_expected_op(
+        dataset,
+        predicate,
+        min_samples_leaf,
+        arity,
+        MaskOp::Xor,
+        "Affine/XOR",
+    )
+}
+
+/// Evaluate a fixed Horn OR-clause predicate with Python-matched scoring.
+///
+/// This helper is intentionally Horn-only: `predicate.op` must be `MaskOp::Or`
+/// and the literals must satisfy Python's Horn polarity rule of at most one
+/// positive literal. Positive threshold/comparison directions are `>=` and `>`,
+/// while negative directions are `<` and `<=`.
+pub fn evaluate_horn_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: ComposedPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+) -> Result<Option<EvaluatedComposedPredicate>, String> {
+    if predicate.op != MaskOp::Or {
+        return Err("Horn composed candidate evaluation requires Or".to_string());
+    }
+    validate_horn_literals(&predicate.literals)?;
+    evaluate_fixed_composed_candidate_with_expected_op(
+        dataset,
+        predicate,
+        min_samples_leaf,
+        arity,
+        MaskOp::Or,
+        "Horn",
+    )
+}
+
+/// Evaluate a fixed AntiHorn OR-clause predicate with Python-matched scoring.
+///
+/// This helper is intentionally AntiHorn-only: `predicate.op` must be
+/// `MaskOp::Or` and the literals must satisfy Python's AntiHorn polarity rule
+/// of at most one negative literal. Positive threshold/comparison directions are
+/// `>=` and `>`, while negative directions are `<` and `<=`.
+pub fn evaluate_antihorn_candidate_with_min_leaf(
+    dataset: &Dataset,
+    predicate: ComposedPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+) -> Result<Option<EvaluatedComposedPredicate>, String> {
+    if predicate.op != MaskOp::Or {
+        return Err("AntiHorn composed candidate evaluation requires Or".to_string());
+    }
+    validate_antihorn_literals(&predicate.literals)?;
+    evaluate_fixed_composed_candidate_with_expected_op(
+        dataset,
+        predicate,
+        min_samples_leaf,
+        arity,
+        MaskOp::Or,
+        "AntiHorn",
+    )
+}
+
+fn evaluate_fixed_composed_candidate_with_expected_op(
+    dataset: &Dataset,
+    predicate: ComposedPredicate,
+    min_samples_leaf: usize,
+    arity: usize,
+    expected_op: MaskOp,
+    family_name: &str,
+) -> Result<Option<EvaluatedComposedPredicate>, String> {
+    if predicate.op != expected_op {
+        return Err(format!(
+            "{family_name} composed candidate evaluation requires {:?}",
+            expected_op
+        ));
+    }
+
+    let inside_mask = predicate.evaluate_mask(dataset)?;
+    let outside_mask = inside_mask.complement();
+    if !satisfies_min_leaf(&inside_mask, &outside_mask, min_samples_leaf) {
+        return Ok(None);
+    }
+
+    let positive_mask = positive_label_mask(dataset);
+    let negative_mask = negative_label_mask(dataset);
+    let parent_counts = class_counts(
+        &BitSet::with_all(dataset.n_samples()),
+        &positive_mask,
+        &negative_mask,
+    )?;
+    let inside_counts = class_counts(&inside_mask, &positive_mask, &negative_mask)?;
+    let outside_counts = class_counts(&outside_mask, &positive_mask, &negative_mask)?;
+    let raw_gain = information_gain(parent_counts, inside_counts)?;
+    if raw_gain <= 0.0 {
+        return Ok(None);
+    }
+    let score = penalized_gain(raw_gain, arity, dataset.n_samples());
+    if score <= 0.0 {
+        return Ok(None);
+    }
+
+    Ok(Some(EvaluatedComposedPredicate {
+        candidate: ComposedCandidate {
+            predicate,
+            score,
+            inside_counts,
+            outside_counts,
+        },
+        inside_mask,
+        outside_mask,
+    }))
+}
+
+fn validate_horn_literals(literals: &[ThresholdPredicate]) -> Result<(), String> {
+    let n_positive = literals
+        .iter()
+        .filter(|literal| is_positive_literal(literal))
+        .count();
+    if n_positive > 1 {
+        return Err(format!(
+            "Horn polarity violation: {n_positive} positive literals; max allowed is 1"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_antihorn_literals(literals: &[ThresholdPredicate]) -> Result<(), String> {
+    let n_negative = literals
+        .iter()
+        .filter(|literal| is_negative_literal(literal))
+        .count();
+    if n_negative > 1 {
+        return Err(format!(
+            "AntiHorn polarity violation: {n_negative} negative literals; max allowed is 1"
+        ));
+    }
+    Ok(())
+}
+
+fn is_positive_literal(predicate: &ThresholdPredicate) -> bool {
+    matches!(
+        predicate.op,
+        ComparisonOp::GreaterEqual | ComparisonOp::GreaterThan
+    )
+}
+
+fn is_negative_literal(predicate: &ThresholdPredicate) -> bool {
+    matches!(
+        predicate.op,
+        ComparisonOp::LessThan | ComparisonOp::LessEqual
+    )
+}
+
+fn evaluate_1d_candidate_parts(
+    dataset: &Dataset,
+    predicate: ThresholdPredicate,
+) -> Result<(SplitCandidate, BitSet, BitSet), String> {
+    let inside_mask = predicate.evaluate_mask(dataset)?;
+    let outside_mask = inside_mask.complement();
+    let positive_mask = positive_label_mask(dataset);
+    let negative_mask = negative_label_mask(dataset);
+    let parent_counts = class_counts(
+        &BitSet::with_all(dataset.n_samples()),
+        &positive_mask,
+        &negative_mask,
+    )?;
+    let inside_counts = class_counts(&inside_mask, &positive_mask, &negative_mask)?;
+    let outside_counts = class_counts(&outside_mask, &positive_mask, &negative_mask)?;
+
+    let raw_gain = information_gain(parent_counts, inside_counts)?;
+    let score = if raw_gain > 0.0 {
+        penalized_gain(raw_gain, 1, dataset.n_samples())
+    } else {
+        raw_gain
+    };
+
+    let candidate = SplitCandidate {
+        feature_index: predicate.feature_index,
+        threshold: predicate.threshold,
+        op: predicate.op,
+        score,
+        inside_counts,
+        outside_counts,
+    };
+    Ok((candidate, inside_mask, outside_mask))
+}
+
+fn satisfies_min_leaf(
+    inside_mask: &BitSet,
+    outside_mask: &BitSet,
+    min_samples_leaf: usize,
+) -> bool {
+    inside_mask.count_ones() >= min_samples_leaf && outside_mask.count_ones() >= min_samples_leaf
+}
+
+fn should_replace(current: Option<&SplitCandidate>, candidate: &SplitCandidate) -> bool {
+    let Some(current) = current else {
+        return true;
+    };
+    const EPS: f64 = 1e-12;
+    if candidate.score > current.score + EPS {
+        return true;
+    }
+    if (candidate.score - current.score).abs() > EPS {
+        return false;
+    }
+    if candidate.feature_index != current.feature_index {
+        return candidate.feature_index < current.feature_index;
+    }
+    if candidate.threshold != current.threshold {
+        return candidate.threshold < current.threshold;
+    }
+    op_rank(candidate.op) < op_rank(current.op)
+}
+
+fn op_rank(op: ComparisonOp) -> usize {
+    match op {
+        // Python exhaustive 1D scans LT/low-anchor before GE/high-anchor.
+        ComparisonOp::LessThan => 0,
+        ComparisonOp::GreaterEqual => 1,
+        ComparisonOp::LessEqual => 2,
+        ComparisonOp::GreaterThan => 3,
+        ComparisonOp::Equal => 4,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EPS: f64 = 1e-12;
+
+    fn conjui_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0, 0.0],
+                vec![1.0, 1.0, 1.0],
+                vec![2.0, 2.0, 2.0],
+                vec![3.0, 3.0, 3.0],
+                vec![4.0, 4.0, 4.0],
+                vec![5.0, 5.0, 5.0],
+            ],
+            vec![1, 0, 0, 0, 1, 1],
+        )
+        .unwrap()
+    }
+
+    fn affine_xor_dataset_2d() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![0.0, 1.0],
+                vec![1.0, 0.0],
+                vec![1.0, 1.0],
+            ],
+            vec![0, 1, 1, 0],
+        )
+        .unwrap()
+    }
+
+    fn two_literal_affine_predicate() -> ComposedPredicate {
+        ComposedPredicate {
+            op: MaskOp::Xor,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        }
+    }
+
+    fn two_literal_conjui_predicate() -> ComposedPredicate {
+        ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 4.0,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        }
+    }
+
+    fn one_feature_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0],
+                vec![1.0],
+                vec![2.0],
+                vec![3.0],
+                vec![4.0],
+                vec![5.0],
+            ],
+            vec![0, 0, 0, 1, 1, 1],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn generates_sorted_midpoint_thresholds() {
+        let ds = Dataset::from_rows(
+            vec![vec![3.0], vec![1.0], vec![1.0], vec![2.0], vec![5.0]],
+            vec![0, 1, 0, 1, 0],
+        )
+        .unwrap();
+        assert_eq!(generate_1d_thresholds(&ds, 0).unwrap(), vec![1.5, 2.5, 4.0]);
+    }
+
+    #[test]
+    fn constant_feature_generates_no_thresholds() {
+        let ds = Dataset::from_rows(vec![vec![7.0], vec![7.0]], vec![0, 1]).unwrap();
+        assert!(generate_1d_thresholds(&ds, 0).unwrap().is_empty());
+        assert!(best_1d_split_for_feature(&ds, 0).unwrap().is_none());
+        assert!(best_1d_split_for_feature_with_min_leaf(&ds, 0, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn invalid_feature_index_errors() {
+        let ds = one_feature_dataset();
+        assert!(generate_1d_thresholds(&ds, 1).is_err());
+        assert!(best_1d_split_for_feature(&ds, 1).is_err());
+        assert!(best_1d_split_for_feature_with_min_leaf(&ds, 1, 1).is_err());
+    }
+
+    #[test]
+    fn candidate_evaluation_counts_and_score() {
+        let ds = one_feature_dataset();
+        let pred = ThresholdPredicate {
+            feature_index: 0,
+            threshold: 2.5,
+            op: ComparisonOp::LessThan,
+        };
+        let candidate = evaluate_1d_candidate(&ds, pred).unwrap();
+
+        assert_eq!(
+            candidate.inside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 3
+            }
+        );
+        assert_eq!(
+            candidate.outside_counts,
+            ClassCounts {
+                positive: 3,
+                negative: 0
+            }
+        );
+        let expected_raw = 1.0_f64;
+        let expected_score = penalized_gain(expected_raw, 1, ds.n_samples());
+        assert!((candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn valid_split_with_min_samples_leaf_one_is_kept() {
+        let ds = one_feature_dataset();
+        let pred = ThresholdPredicate {
+            feature_index: 0,
+            threshold: 0.5,
+            op: ComparisonOp::LessThan,
+        };
+        let candidate = evaluate_1d_candidate_with_min_leaf(&ds, pred, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(candidate.inside_counts.total(), 1);
+        assert_eq!(candidate.outside_counts.total(), 5);
+    }
+
+    #[test]
+    fn candidate_rejected_when_inside_side_too_small() {
+        let ds = one_feature_dataset();
+        let pred = ThresholdPredicate {
+            feature_index: 0,
+            threshold: 0.5,
+            op: ComparisonOp::LessThan,
+        };
+        assert!(evaluate_1d_candidate_with_min_leaf(&ds, pred, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn candidate_rejected_when_outside_side_too_small() {
+        let ds = one_feature_dataset();
+        let pred = ThresholdPredicate {
+            feature_index: 0,
+            threshold: 4.5,
+            op: ComparisonOp::LessThan,
+        };
+        assert!(evaluate_1d_candidate_with_min_leaf(&ds, pred, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn min_samples_leaf_zero_disables_leaf_size_rejection() {
+        let ds = one_feature_dataset();
+        let pred = ThresholdPredicate {
+            feature_index: 0,
+            threshold: -1.0,
+            op: ComparisonOp::LessThan,
+        };
+        let candidate = evaluate_1d_candidate_with_min_leaf(&ds, pred, 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(candidate.inside_counts.total(), 0);
+        assert_eq!(candidate.outside_counts.total(), ds.n_samples());
+        assert_eq!(candidate.score, -1.0);
+    }
+
+    #[test]
+    fn invalid_empty_split_scores_minus_one() {
+        let ds = one_feature_dataset();
+        let pred = ThresholdPredicate {
+            feature_index: 0,
+            threshold: -1.0,
+            op: ComparisonOp::LessThan,
+        };
+        let candidate = evaluate_1d_candidate(&ds, pred).unwrap();
+        assert_eq!(
+            candidate.inside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 0
+            }
+        );
+        assert_eq!(candidate.score, -1.0);
+        assert!(evaluate_1d_candidate_with_min_leaf(&ds, pred, 1)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn best_split_for_one_feature_is_manually_known() {
+        let ds = one_feature_dataset();
+        let best = best_1d_split_for_feature(&ds, 0).unwrap().unwrap();
+        assert_eq!(best.candidate.feature_index, 0);
+        assert_eq!(best.candidate.threshold, 2.5);
+        assert_eq!(best.candidate.op, ComparisonOp::LessThan);
+        assert_eq!(best.inside_mask.indices(), vec![0, 1, 2]);
+        assert_eq!(best.outside_mask.indices(), vec![3, 4, 5]);
+        assert_eq!(
+            best.candidate.inside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 3
+            }
+        );
+        assert_eq!(
+            best.candidate.outside_counts,
+            ClassCounts {
+                positive: 3,
+                negative: 0
+            }
+        );
+    }
+
+    #[test]
+    fn all_candidates_rejected_returns_none() {
+        let ds = one_feature_dataset();
+        assert!(best_1d_split_for_feature_with_min_leaf(&ds, 0, 4)
+            .unwrap()
+            .is_none());
+        assert!(best_1d_split_with_min_leaf(&ds, 4).unwrap().is_none());
+    }
+
+    #[test]
+    fn min_samples_leaf_larger_than_dataset_size_returns_none() {
+        let ds = one_feature_dataset();
+        assert!(best_1d_split_with_min_leaf(&ds, ds.n_samples() + 1)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn best_split_changes_when_min_samples_leaf_increases() {
+        let ds = Dataset::from_rows(
+            (0..6).map(|value| vec![value as f64]).collect(),
+            vec![0, 0, 0, 0, 0, 1],
+        )
+        .unwrap();
+
+        let loose = best_1d_split_for_feature_with_min_leaf(&ds, 0, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(loose.candidate.threshold, 4.5);
+        assert_eq!(loose.candidate.op, ComparisonOp::LessThan);
+        assert_eq!(loose.outside_mask.count_ones(), 1);
+
+        let strict = best_1d_split_for_feature_with_min_leaf(&ds, 0, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(strict.candidate.threshold, 3.5);
+        assert_eq!(strict.candidate.op, ComparisonOp::LessThan);
+        assert!(strict.inside_mask.count_ones() >= 2);
+        assert!(strict.outside_mask.count_ones() >= 2);
+    }
+
+    #[test]
+    fn best_split_across_multiple_features_uses_feature_order_tie_break() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 10.0],
+                vec![1.0, 11.0],
+                vec![2.0, 12.0],
+                vec![3.0, 13.0],
+            ],
+            vec![0, 0, 1, 1],
+        )
+        .unwrap();
+        let best = best_1d_split(&ds).unwrap().unwrap();
+        assert_eq!(best.candidate.feature_index, 0);
+        assert_eq!(best.candidate.threshold, 1.5);
+    }
+
+    #[test]
+    fn deterministic_tie_break_still_applies_among_valid_candidates() {
+        let ds = Dataset::from_rows(
+            (0..20).map(|value| vec![value as f64]).collect(),
+            vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+        )
+        .unwrap();
+        let best = best_1d_split_for_feature_with_min_leaf(&ds, 0, 5)
+            .unwrap()
+            .unwrap();
+        // thresholds 4.5 and 14.5 have equal positive penalized score; choose smaller threshold.
+        assert_eq!(best.candidate.threshold, 4.5);
+        // LT and GE tie at threshold 4.5; LT matches Python low-anchor order.
+        assert_eq!(best.candidate.op, ComparisonOp::LessThan);
+    }
+
+    #[test]
+    fn evaluates_valid_two_literal_conjui_candidate() {
+        let ds = conjui_dataset();
+        let pred = two_literal_conjui_predicate();
+        let evaluated = evaluate_composed_candidate_with_min_leaf(&ds, pred.clone(), 1, 2)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2, 3]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0, 4, 5]);
+        assert_eq!(evaluated.candidate.predicate, pred);
+        assert_eq!(
+            evaluated.candidate.inside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 3
+            }
+        );
+        assert_eq!(
+            evaluated.candidate.outside_counts,
+            ClassCounts {
+                positive: 3,
+                negative: 0
+            }
+        );
+        let expected_score = penalized_gain(1.0, 2, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn evaluates_valid_three_literal_conjui_candidate() {
+        let ds = conjui_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 4.0,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 2,
+                    threshold: 4.0,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+        let evaluated = evaluate_composed_candidate_with_min_leaf(&ds, pred, 2, 3)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2, 3]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0, 4, 5]);
+        assert_eq!(evaluated.candidate.inside_counts.negative, 3);
+        assert_eq!(evaluated.candidate.outside_counts.positive, 3);
+        let expected_score = penalized_gain(1.0, 3, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn conjui_candidate_rejects_nonpositive_gain() {
+        let ds = Dataset::from_rows(
+            vec![vec![0.0], vec![1.0], vec![2.0], vec![3.0]],
+            vec![0, 1, 0, 1],
+        )
+        .unwrap();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![ThresholdPredicate {
+                feature_index: 0,
+                threshold: 2.0,
+                op: ComparisonOp::LessThan,
+            }],
+        };
+
+        assert!(evaluate_composed_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn conjui_candidate_rejects_inside_branch_too_small() {
+        let ds = conjui_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 2.0,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+
+        assert!(evaluate_composed_candidate_with_min_leaf(&ds, pred, 2, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn conjui_candidate_rejects_outside_branch_too_small() {
+        let ds = conjui_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 6.0,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+
+        assert!(evaluate_composed_candidate_with_min_leaf(&ds, pred, 2, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn conjui_candidate_min_samples_leaf_zero_disables_branch_rejection() {
+        let ds = Dataset::from_rows(
+            (0..10)
+                .map(|value| vec![value as f64, value as f64])
+                .collect(),
+            vec![0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        )
+        .unwrap();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+
+        assert!(
+            evaluate_composed_candidate_with_min_leaf(&ds, pred.clone(), 2, 2)
+                .unwrap()
+                .is_none()
+        );
+        let evaluated = evaluate_composed_candidate_with_min_leaf(&ds, pred, 0, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(evaluated.inside_mask.indices(), vec![0]);
+        assert!(evaluated.candidate.score > 0.0);
+    }
+
+    #[test]
+    fn conjui_candidate_propagates_invalid_feature_error() {
+        let ds = conjui_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: vec![ThresholdPredicate {
+                feature_index: 99,
+                threshold: 0.0,
+                op: ComparisonOp::LessThan,
+            }],
+        };
+
+        assert!(evaluate_composed_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap_err()
+            .contains("out of range"));
+    }
+
+    #[test]
+    fn conjui_candidate_propagates_empty_predicate_error() {
+        let ds = conjui_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::And,
+            literals: Vec::new(),
+        };
+
+        assert!(evaluate_composed_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap_err()
+            .contains("at least one"));
+    }
+
+    #[test]
+    fn conjui_candidate_rejects_or_and_xor_operators() {
+        let ds = conjui_dataset();
+        for op in [MaskOp::Or, MaskOp::Xor] {
+            let pred = ComposedPredicate {
+                op,
+                literals: vec![ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 1.0,
+                    op: ComparisonOp::GreaterEqual,
+                }],
+            };
+            let err = evaluate_composed_candidate_with_min_leaf(&ds, pred, 1, 1).unwrap_err();
+            assert!(err.contains("And"));
+        }
+    }
+
+    #[test]
+    fn evaluates_valid_two_literal_affine_xor_candidate() {
+        let ds = affine_xor_dataset_2d();
+        let pred = two_literal_affine_predicate();
+        let evaluated = evaluate_affine_candidate_with_min_leaf(&ds, pred.clone(), 1, 2)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0, 3]);
+        assert_eq!(evaluated.candidate.predicate, pred);
+        assert_eq!(
+            evaluated.candidate.inside_counts,
+            ClassCounts {
+                positive: 2,
+                negative: 0
+            }
+        );
+        assert_eq!(
+            evaluated.candidate.outside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 2
+            }
+        );
+        let expected_score = penalized_gain(1.0, 2, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn evaluates_valid_three_literal_affine_xor_candidate() {
+        let rows: Vec<Vec<f64>> = (0..8)
+            .map(|bits| {
+                vec![
+                    ((bits >> 2) & 1) as f64,
+                    ((bits >> 1) & 1) as f64,
+                    (bits & 1) as f64,
+                ]
+            })
+            .collect();
+        let labels: Vec<u8> = (0..8)
+            .map(|bits| ((((bits >> 2) & 1) ^ ((bits >> 1) & 1) ^ (bits & 1)) as u8))
+            .collect();
+        let ds = Dataset::from_rows(rows, labels).unwrap();
+        let pred = ComposedPredicate {
+            op: MaskOp::Xor,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 2,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        };
+        let evaluated = evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 3)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2, 4, 7]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0, 3, 5, 6]);
+        assert_eq!(evaluated.candidate.inside_counts.positive, 4);
+        assert_eq!(evaluated.candidate.outside_counts.negative, 4);
+        let expected_score = penalized_gain(1.0, 3, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn affine_candidate_rejects_nonpositive_gain() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 0.0],
+                vec![0.0, 1.0],
+                vec![1.0, 0.0],
+                vec![1.0, 1.0],
+            ],
+            vec![0, 0, 1, 1],
+        )
+        .unwrap();
+        let pred = two_literal_affine_predicate();
+
+        assert!(evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn affine_candidate_rejects_inside_branch_too_small() {
+        let ds = affine_xor_dataset_2d();
+        let pred = two_literal_affine_predicate();
+
+        assert!(evaluate_affine_candidate_with_min_leaf(&ds, pred, 3, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn affine_candidate_rejects_outside_branch_too_small() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+                vec![1.0, 0.0],
+                vec![0.0, 0.0],
+            ],
+            vec![1, 1, 1, 1, 1, 0],
+        )
+        .unwrap();
+        let pred = two_literal_affine_predicate();
+
+        assert!(evaluate_affine_candidate_with_min_leaf(&ds, pred, 2, 2)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn affine_candidate_min_samples_leaf_zero_disables_branch_rejection() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![1.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+                vec![0.0, 0.0],
+            ],
+            vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
+        .unwrap();
+        let pred = two_literal_affine_predicate();
+
+        assert!(
+            evaluate_affine_candidate_with_min_leaf(&ds, pred.clone(), 2, 2)
+                .unwrap()
+                .is_none()
+        );
+        let evaluated = evaluate_affine_candidate_with_min_leaf(&ds, pred, 0, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(evaluated.inside_mask.indices(), vec![0]);
+        assert_eq!(evaluated.outside_mask.count_ones(), 9);
+        assert!(evaluated.candidate.score > 0.0);
+    }
+
+    #[test]
+    fn affine_candidate_propagates_invalid_feature_error() {
+        let ds = affine_xor_dataset_2d();
+        let pred = ComposedPredicate {
+            op: MaskOp::Xor,
+            literals: vec![ThresholdPredicate {
+                feature_index: 99,
+                threshold: 0.0,
+                op: ComparisonOp::LessThan,
+            }],
+        };
+
+        assert!(evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap_err()
+            .contains("out of range"));
+    }
+
+    #[test]
+    fn affine_candidate_propagates_empty_predicate_error() {
+        let ds = affine_xor_dataset_2d();
+        let pred = ComposedPredicate {
+            op: MaskOp::Xor,
+            literals: Vec::new(),
+        };
+
+        assert!(evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 1)
+            .unwrap_err()
+            .contains("at least one"));
+    }
+
+    #[test]
+    fn affine_candidate_rejects_and_and_or_operators() {
+        let ds = affine_xor_dataset_2d();
+        for op in [MaskOp::And, MaskOp::Or] {
+            let pred = ComposedPredicate {
+                op,
+                literals: vec![ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                }],
+            };
+            let err = evaluate_affine_candidate_with_min_leaf(&ds, pred, 1, 1).unwrap_err();
+            assert!(err.contains("Xor"));
+        }
+    }
+
+    fn horn_antihorn_or_dataset() -> Dataset {
+        Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0, 0.0],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 1.0],
+                vec![1.0, 0.0, 0.0],
+            ],
+            vec![0, 1, 1, 1],
+        )
+        .unwrap()
+    }
+
+    fn valid_horn_predicate() -> ComposedPredicate {
+        ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        }
+    }
+
+    fn valid_antihorn_predicate() -> ComposedPredicate {
+        ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn evaluates_valid_horn_or_candidate() {
+        let ds = horn_antihorn_or_dataset();
+        let pred = valid_horn_predicate();
+        let evaluated = evaluate_horn_candidate_with_min_leaf(&ds, pred.clone(), 1, 2)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![1, 2, 3]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![0]);
+        assert_eq!(evaluated.candidate.predicate, pred);
+        assert_eq!(
+            evaluated.candidate.inside_counts,
+            ClassCounts {
+                positive: 3,
+                negative: 0
+            }
+        );
+        assert_eq!(
+            evaluated.candidate.outside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 1
+            }
+        );
+        let expected_score = penalized_gain(0.8112781244591328, 2, ds.n_samples());
+        assert!((evaluated.candidate.score - expected_score).abs() < EPS);
+    }
+
+    #[test]
+    fn evaluates_valid_antihorn_or_candidate() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0, 0.0],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 1.0],
+                vec![1.0, 0.0, 0.0],
+            ],
+            vec![1, 1, 0, 1],
+        )
+        .unwrap();
+        let pred = valid_antihorn_predicate();
+        let evaluated = evaluate_antihorn_candidate_with_min_leaf(&ds, pred.clone(), 1, 2)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(evaluated.inside_mask.indices(), vec![0, 1, 3]);
+        assert_eq!(evaluated.outside_mask.indices(), vec![2]);
+        assert_eq!(evaluated.candidate.predicate, pred);
+        assert_eq!(
+            evaluated.candidate.inside_counts,
+            ClassCounts {
+                positive: 3,
+                negative: 0
+            }
+        );
+        assert_eq!(
+            evaluated.candidate.outside_counts,
+            ClassCounts {
+                positive: 0,
+                negative: 1
+            }
+        );
+        assert!(evaluated.candidate.score > 0.0);
+    }
+
+    #[test]
+    fn evaluates_three_literal_horn_and_antihorn_or_candidates() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0, 1.0],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 1.0],
+                vec![0.0, 1.0, 0.0],
+                vec![1.0, 0.0, 0.0],
+            ],
+            vec![0, 1, 1, 1, 1],
+        )
+        .unwrap();
+        let horn_pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 2,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+            ],
+        };
+        let horn_eval = evaluate_horn_candidate_with_min_leaf(&ds, horn_pred, 1, 3)
+            .unwrap()
+            .unwrap();
+        assert_eq!(horn_eval.inside_mask.indices(), vec![1, 2, 3, 4]);
+        assert_eq!(horn_eval.outside_mask.indices(), vec![0]);
+        assert_eq!(horn_eval.candidate.inside_counts.positive, 4);
+
+        let anti_ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0, 1.0],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 1.0],
+                vec![0.0, 1.0, 0.0],
+                vec![1.0, 0.0, 0.0],
+            ],
+            vec![1, 1, 1, 1, 0],
+        )
+        .unwrap();
+        let antihorn_pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 2,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+            ],
+        };
+        let anti_eval = evaluate_antihorn_candidate_with_min_leaf(&anti_ds, antihorn_pred, 1, 3)
+            .unwrap()
+            .unwrap();
+        assert_eq!(anti_eval.inside_mask.indices(), vec![0, 1, 2, 3]);
+        assert_eq!(anti_eval.outside_mask.indices(), vec![4]);
+    }
+
+    #[test]
+    fn horn_rejects_invalid_polarity_combination() {
+        let ds = horn_antihorn_or_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterThan,
+                },
+            ],
+        };
+
+        assert!(evaluate_horn_candidate_with_min_leaf(&ds, pred, 1, 2)
+            .unwrap_err()
+            .contains("Horn polarity violation"));
+    }
+
+    #[test]
+    fn antihorn_rejects_invalid_polarity_combination() {
+        let ds = horn_antihorn_or_dataset();
+        let pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![
+                ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessThan,
+                },
+                ThresholdPredicate {
+                    feature_index: 1,
+                    threshold: 0.5,
+                    op: ComparisonOp::LessEqual,
+                },
+            ],
+        };
+
+        assert!(evaluate_antihorn_candidate_with_min_leaf(&ds, pred, 1, 2)
+            .unwrap_err()
+            .contains("AntiHorn polarity violation"));
+    }
+
+    #[test]
+    fn horn_and_antihorn_reject_non_or_operators() {
+        let ds = horn_antihorn_or_dataset();
+        for op in [MaskOp::And, MaskOp::Xor] {
+            let pred = ComposedPredicate {
+                op,
+                literals: vec![ThresholdPredicate {
+                    feature_index: 0,
+                    threshold: 0.5,
+                    op: ComparisonOp::GreaterEqual,
+                }],
+            };
+            assert!(
+                evaluate_horn_candidate_with_min_leaf(&ds, pred.clone(), 1, 1)
+                    .unwrap_err()
+                    .contains("requires Or")
+            );
+            assert!(evaluate_antihorn_candidate_with_min_leaf(&ds, pred, 1, 1)
+                .unwrap_err()
+                .contains("requires Or"));
+        }
+    }
+
+    #[test]
+    fn horn_antihorn_reject_nonpositive_gain() {
+        let ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0],
+                vec![1.0, 1.0],
+                vec![0.0, 0.0],
+                vec![1.0, 0.0],
+            ],
+            vec![0, 0, 1, 1],
+        )
+        .unwrap();
+
+        assert!(
+            evaluate_horn_candidate_with_min_leaf(&ds, valid_horn_predicate(), 1, 2)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            evaluate_antihorn_candidate_with_min_leaf(&ds, valid_antihorn_predicate(), 1, 2)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn horn_antihorn_min_leaf_rejections_and_zero_behavior() {
+        let ds = horn_antihorn_or_dataset();
+        assert!(
+            evaluate_horn_candidate_with_min_leaf(&ds, valid_horn_predicate(), 2, 2)
+                .unwrap()
+                .is_none()
+        );
+
+        let anti_ds = Dataset::from_rows(
+            vec![
+                vec![0.0, 1.0, 0.0],
+                vec![1.0, 1.0, 1.0],
+                vec![0.0, 0.0, 1.0],
+                vec![1.0, 0.0, 0.0],
+            ],
+            vec![1, 1, 0, 1],
+        )
+        .unwrap();
+        assert!(evaluate_antihorn_candidate_with_min_leaf(
+            &anti_ds,
+            valid_antihorn_predicate(),
+            2,
+            2
+        )
+        .unwrap()
+        .is_none());
+
+        let horn_eval = evaluate_horn_candidate_with_min_leaf(&ds, valid_horn_predicate(), 0, 2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(horn_eval.outside_mask.indices(), vec![0]);
+        let anti_eval =
+            evaluate_antihorn_candidate_with_min_leaf(&anti_ds, valid_antihorn_predicate(), 0, 2)
+                .unwrap()
+                .unwrap();
+        assert_eq!(anti_eval.outside_mask.indices(), vec![2]);
+    }
+
+    #[test]
+    fn horn_antihorn_reject_inside_branch_too_small() {
+        let ds = Dataset::from_rows(
+            vec![vec![1.0], vec![0.0], vec![0.0], vec![0.0]],
+            vec![1, 0, 0, 0],
+        )
+        .unwrap();
+        let pred = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![ThresholdPredicate {
+                feature_index: 0,
+                threshold: 0.5,
+                op: ComparisonOp::GreaterEqual,
+            }],
+        };
+
+        assert!(
+            evaluate_horn_candidate_with_min_leaf(&ds, pred.clone(), 2, 1)
+                .unwrap()
+                .is_none()
+        );
+        assert!(evaluate_antihorn_candidate_with_min_leaf(&ds, pred, 2, 1)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn horn_antihorn_propagate_invalid_feature_and_empty_predicate_errors() {
+        let ds = horn_antihorn_or_dataset();
+        let invalid_feature = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: vec![ThresholdPredicate {
+                feature_index: 99,
+                threshold: 0.5,
+                op: ComparisonOp::GreaterEqual,
+            }],
+        };
+        assert!(
+            evaluate_horn_candidate_with_min_leaf(&ds, invalid_feature.clone(), 1, 1)
+                .unwrap_err()
+                .contains("out of range")
+        );
+        assert!(
+            evaluate_antihorn_candidate_with_min_leaf(&ds, invalid_feature, 1, 1)
+                .unwrap_err()
+                .contains("out of range")
+        );
+
+        let empty = ComposedPredicate {
+            op: MaskOp::Or,
+            literals: Vec::new(),
+        };
+        assert!(
+            evaluate_horn_candidate_with_min_leaf(&ds, empty.clone(), 1, 1)
+                .unwrap_err()
+                .contains("at least one")
+        );
+        assert!(evaluate_antihorn_candidate_with_min_leaf(&ds, empty, 1, 1)
+            .unwrap_err()
+            .contains("at least one"));
+    }
+
+    #[test]
+    fn no_positive_gain_returns_none() {
+        let ds = Dataset::from_rows(
+            vec![vec![0.0], vec![1.0], vec![2.0], vec![3.0]],
+            vec![1, 1, 1, 1],
+        )
+        .unwrap();
+        assert!(best_1d_split(&ds).unwrap().is_none());
+    }
+
+    #[test]
+    fn rejects_nan_threshold_generation_for_now() {
+        let ds = Dataset::from_rows(vec![vec![f64::NAN], vec![1.0]], vec![0, 1]).unwrap();
+        assert!(generate_1d_thresholds(&ds, 0).unwrap_err().contains("NaN"));
+    }
+}
