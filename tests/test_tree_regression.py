@@ -11,16 +11,22 @@ import json
 import numpy as np
 import pytest
 
-# Make RS root importable (for monolith and data access)
-RS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+from data_path import DATA_DIR, HAS_DL8_DATA, RS_ROOT
+from golden_utils import find_dataset_file, load_golden
+
+# Make repo root importable (for monolith and data access)
 sys.path.insert(0, RS_ROOT)
+
+pytestmark = pytest.mark.skipif(
+    not HAS_DL8_DATA,
+    reason=f"No .dl8 benchmark data found in {DATA_DIR}",
+)
 
 # Load golden baselines
 GOLDEN_PATH = os.path.join(os.path.dirname(__file__), 'golden_baselines.json')
-with open(GOLDEN_PATH) as f:
-    GOLDEN = json.load(f)
+GOLDEN = load_golden(GOLDEN_PATH)
+# These goldens correspond to deterministic post-theorem-boundary behavior.
 
-DATA_DIR = os.path.join(RS_ROOT, 'data')
 
 
 def parse_dl8(filepath):
@@ -49,7 +55,7 @@ def get_tree_class():
 def train_golden(name):
     """Train a tree with the same settings as the golden capture."""
     g = GOLDEN[name]
-    data_path = os.path.join(DATA_DIR, f'{name}.dl8')
+    data_path = find_dataset_file(name)
     X, y = parse_dl8(data_path)
 
     np.random.seed(g['seed'])
