@@ -1,0 +1,523 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{caption}
+
+\geometry{margin=2.5cm}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black
+}
+\setlist[itemize]{noitemsep,topsep=3pt}
+\setlist[enumerate]{noitemsep,topsep=3pt}
+
+\title{Learning Multivariate Decision Trees with Tractable Predicate Classes}
+\author{Youssef Arfouy\\Master 2 Computer Science for Aerospace\\Universit\'e Toulouse III -- Paul Sabatier\\Supervisor: Professor Martin Cooper}
+\date{Academic year 2025--2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Decision trees are widely used because they are easy to inspect: a prediction is obtained by following a sequence of tests from the root of the tree to a leaf. Standard decision trees usually use univariate tests, such as ``feature $x_i$ is greater than a threshold''. Such tests are simple, but they can require large trees when the target concept depends on interactions between several features. Multivariate decision trees address this limitation by allowing each internal node to test a predicate involving several features. The difficulty is that unrestricted multivariate predicates can make learning and explanation computationally expensive.
+
+This report presents a Python implementation of multivariate decision trees whose internal predicates are restricted to tractable logical classes inspired by the GSNH framework and by classical tractable SAT fragments. The implemented families include Horn, Anti-Horn, Square2CNF, ConjUI, Affine, and an empirical best-per-node selection strategy. The central idea is to improve the expressiveness of tree splits while keeping the logical structure of explanation paths manageable. The work includes the implementation of predicate representations, split search, recursive tree construction, SAT-based path checking, experimental benchmarking on \texttt{.dl8} datasets, and evidence-generation scripts for tables and report artifacts.
+
+The experimental results show that several tractable multivariate families can reach accuracy comparable to a depth-limited scikit-learn decision tree while producing much smaller trees. In particular, Horn and Anti-Horn variants achieve competitive average accuracy while reducing the average tree size substantially. Square2CNF and Affine variants are useful as experimental or auxiliary comparisons, but their theorem-certification status must be stated carefully. The Python implementation is therefore the reference implementation used for the thesis evidence. A Rust implementation has also been started as an optional future optimization path, but it is not used as the main experimental evidence because its parity with the Python oracle is still incomplete.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+Machine learning models are often evaluated only by their predictive accuracy. In safety-related or high-assurance contexts, this is not sufficient. A model may be accurate, but if its decisions cannot be inspected, justified, or checked, then it is difficult to trust it in a critical workflow. Decision trees are attractive because their predictions can be explained by a path: each internal node asks a question, and the answer selects the next branch until a leaf label is reached.
+
+A standard decision tree normally uses a single feature at each node. For example, a node may test whether
+\[
+    x_3 \geq 4.5.
+\]
+This is called a univariate threshold split. The advantage is simplicity. The disadvantage is that some classification problems depend on combinations of features. In those cases, a standard tree may need many nodes to approximate a simple logical rule.
+
+A multivariate decision tree allows a node to test a predicate involving several literals, for example:
+\[
+    (x_1 \geq t_1) \lor (x_2 < t_2),
+\]
+or a conjunction of interval constraints such as:
+\[
+    (x_1 \geq t_1) \land (x_4 < t_4).
+\]
+These predicates can be more expressive, so the resulting tree may be smaller. However, if the predicates are unrestricted, then reasoning about the tree can become difficult. In particular, exact explanation tasks can require solving satisfiability problems over the path constraints.
+
+The objective of this thesis work is to explore a middle ground: use multivariate predicates that are more expressive than single-threshold splits, but restrict them to logical classes for which satisfiability remains tractable. The implementation developed in this work is called \texttt{gsnh-mdt}. It is a Python research implementation of multivariate decision trees using language-constrained predicates.
+
+The main contributions are:
+\begin{itemize}
+    \item a Python implementation of decision-tree learning with tractable multivariate predicate classes;
+    \item implementations of several logical families, including Horn, Anti-Horn, ConjUI, Square2CNF, and Affine/XOR-style predicates;
+    \item a benchmark pipeline over \texttt{.dl8} datasets comparing these variants against a scikit-learn decision-tree baseline;
+    \item careful separation between empirical performance claims and theorem-certified explanation claims;
+    \item preliminary work on an optional Rust engine, kept as future work because full Python-vs-Rust parity is not yet established.
+\end{itemize}
+
+\section{Problem Statement}
+
+\subsection{Classification setting}
+
+The learning problem considered in this work is supervised classification. The input is a training set
+\[
+    D = \{(x^{(1)}, y^{(1)}), \ldots, (x^{(n)}, y^{(n)})\},
+\]
+where each instance $x^{(i)}$ is a feature vector and each label $y^{(i)}$ is a class label. In the implemented benchmark pipeline, labels are converted deterministically to a binary classification problem when needed.
+
+A decision tree is a recursive model. Each internal node contains a predicate $p(x)$. If $p(x)$ is true, prediction follows one branch; otherwise it follows the other branch. Each leaf stores a predicted class, usually the majority class among the training samples reaching that leaf.
+
+The learning objective is not only to obtain high accuracy. The tree should also remain compact and interpretable. This creates a trade-off:
+\begin{itemize}
+    \item simple splits are easy to understand but may require large trees;
+    \item expressive splits can reduce tree size but may make search and explanation harder;
+    \item tractable logical classes provide a compromise between expressiveness and computational control.
+\end{itemize}
+
+\subsection{Why multivariate predicates matter}
+
+A univariate decision tree partitions the feature space using axis-aligned tests. If the target concept is diagonal, logical, or based on feature interactions, many axis-aligned cuts may be needed. A multivariate predicate can represent a more informative question at one node.
+
+For example, suppose the target class depends on whether either of two threshold conditions is true. A univariate tree may need several nodes to express the disjunction. A Horn-style or Anti-Horn-style predicate can express such a condition more directly. This can reduce the number of nodes needed to obtain similar accuracy.
+
+\subsection{Why restrictions are necessary}
+
+The expressive power of multivariate predicates is useful, but unrestricted logic is dangerous computationally. Explanation paths in a tree are conjunctions of all decisions taken from root to leaf. To check whether an explanation is valid, one may need to check whether certain path constraints are satisfiable or unsatisfiable. For arbitrary Boolean formulas, satisfiability is NP-complete.
+
+The key idea is therefore to restrict predicates to families for which satisfiability is polynomial-time. This does not make every part of tree learning formally verified or globally optimal. The greedy search for good splits remains an empirical learning procedure. However, the logical form of the selected predicates can preserve tractability for path reasoning and explanation checking.
+
+\section{Background: Tractable Predicate Classes}
+
+\subsection{Threshold literals}
+
+The basic atom used by the implementation is a threshold literal over a feature. The two main polarities are:
+\[
+    x_f \geq t
+    \quad\text{and}\quad
+    x_f < t.
+\]
+The implementation treats these as positive and negative threshold directions, respectively. More complex predicates are built by combining such literals.
+
+\subsection{Horn predicates}
+
+A Horn clause is a disjunction of literals with at most one positive literal. An example is:
+\[
+    (x_1 < t_1) \lor (x_2 < t_2) \lor (x_3 \geq t_3).
+\]
+Horn satisfiability is tractable. In this project, fixed Horn modes are important because they correspond to a well-known polynomial SAT fragment. The implementation supports Horn-style split candidates and uses them as one of the main theorem-oriented families.
+
+\subsection{Anti-Horn predicates}
+
+Anti-Horn, also called dual-Horn, is the mirror image of Horn. An Anti-Horn clause has at most one negative literal. For instance:
+\[
+    (x_1 \geq t_1) \lor (x_2 \geq t_2) \lor (x_3 < t_3)
+\]
+is Anti-Horn. Like Horn, Anti-Horn satisfiability is tractable. This family is useful because it represents a different structural bias and may fit some datasets better than Horn.
+
+\subsection{ConjUI predicates}
+
+ConjUI is the implemented name for conjunctions of unary interval-style constraints. It corresponds to a box-like region in feature space. A typical ConjUI predicate has the form:
+\[
+    (x_1 \geq t_1) \land (x_2 < t_2) \land (x_5 \geq t_5).
+\]
+This family is simple and interpretable. It is useful as an auxiliary or ablation family because it tests whether box-like constraints can provide compact and accurate splits. However, it must not be confused with the paper-style Square2CNF language.
+
+\subsection{Square2CNF predicates}
+
+Square2CNF is the paper-style square 2-CNF family. In the current implementation, a Square2CNF predicate is represented as a conjunction of two-literal disjunctive clauses, for example:
+\[
+    (\ell_1 \lor \ell_2) \land (\ell_3 \lor \ell_4),
+\]
+where each $\ell_i$ is a supported threshold literal. This family is theorem-relevant only when the explanation path is explicitly encoded as 2-CNF and checked by the proper 2-SAT backend. Candidate caps used during search are empirical engineering choices and should not be interpreted as proof of globally optimal training.
+
+\subsection{Affine predicates}
+
+Affine predicates represent XOR-style constraints over Booleanized threshold atoms, for example:
+\[
+    b_1 \oplus b_2 \oplus b_3 = c.
+\]
+Such constraints are tractable over GF(2) using Gaussian elimination. In this project, Affine is useful as an auxiliary experimental family. However, the Python benchmark must not claim theorem certification for Affine until a verified GF(2) certificate checker is implemented in the Python certification path.
+
+\subsection{Best-per-node strategy}
+
+The best-per-node strategy is an empirical adaptive method. Instead of committing the whole tree to one fixed language family, the implementation can choose the most promising family at each node. This may improve empirical accuracy, but it must be interpreted carefully. A mixed tree is not automatically theorem-certified. It becomes theorem-certified only path by path, when every checked path satisfies an accepted certificate condition.
+
+\section{Implementation}
+
+\subsection{General architecture}
+
+The implementation is organized as a Python package under \texttt{src/gsnh\_mdt}. The central tree implementation is \texttt{ExpertGSNHTree}. It is responsible for fitting the tree, selecting splits, storing the recursive structure, and exposing prediction and scoring methods.
+
+The implementation separates the following concerns:
+\begin{itemize}
+    \item \textbf{types and configuration}: language families, literal polarities, arities, and valid polarity patterns;
+    \item \textbf{literals and predicates}: threshold literals, comparison literals, composed predicates, and family-specific predicate objects;
+    \item \textbf{search}: candidate generation and evaluation for different predicate families;
+    \item \textbf{scoring}: entropy, information gain, gain ratio, and penalized gain;
+    \item \textbf{tree construction}: greedy recursive node expansion with stopping criteria;
+    \item \textbf{SAT and explanation}: path satisfiability checks and abductive explanation extraction;
+    \item \textbf{benchmarking}: reproducible evaluation over \texttt{.dl8} datasets with CSV, JSON, LaTeX, figure, and report outputs.
+\end{itemize}
+
+\subsection{Data loading and preprocessing}
+
+The benchmark script expects \texttt{.dl8} files where the first column is the label and the remaining columns are features. The parser reads the file as integer rows, converts the feature matrix to floating point, and maps labels to binary targets when necessary.
+
+Preprocessing includes:
+\begin{itemize}
+    \item deterministic label binarization;
+    \item removal of constant columns;
+    \item recursive discovery of \texttt{.dl8} files in the data directory;
+    \item reproducible train/test splitting.
+\end{itemize}
+
+This design makes the experiments easier to reproduce. It also avoids failures caused by datasets that contain features with no variance.
+
+\subsection{Split scoring}
+
+The main split quality criterion is information gain. For a candidate predicate, the training samples reaching a node are divided into two branches: samples satisfying the predicate and samples not satisfying it. The score measures how much the split reduces class uncertainty.
+
+Let $H(S)$ be the binary entropy of sample set $S$. If a candidate split divides $S$ into $S_T$ and $S_F$, the information gain is:
+\[
+    IG(S, p) = H(S)
+      - \frac{|S_T|}{|S|} H(S_T)
+      - \frac{|S_F|}{|S|} H(S_F).
+\]
+
+The implementation also includes penalized scoring variants to discourage unnecessarily complex predicates. This is important because a larger predicate may fit training data better but may be less interpretable and less robust.
+
+\subsection{Tree construction}
+
+The tree is built greedily. At each node, the algorithm searches candidate predicates from the selected language family and chooses a split according to the scoring function. Then it recursively builds the true and false subtrees.
+
+Stopping criteria include:
+\begin{itemize}
+    \item maximum depth;
+    \item pure node, where all samples have the same label;
+    \item too few samples to split;
+    \item no candidate split with positive useful score.
+\end{itemize}
+
+At a leaf, the prediction is the majority class of the training samples reaching that leaf. This is simple, deterministic, and standard for classification trees.
+
+\subsection{Language-specific implementation choices}
+
+\paragraph{Horn and Anti-Horn.}
+The Horn and Anti-Horn implementations generate candidates that satisfy the required polarity restrictions. Horn allows at most one positive threshold literal in a clause. Anti-Horn allows at most one negative threshold literal. These families are the main theorem-oriented fragments used in the report.
+
+\paragraph{ConjUI.}
+ConjUI uses conjunctions of unary interval literals. It is useful for compact box-like splits and as an ablation family. It is not the same as Square2CNF and is not used as the main theorem-certified family unless separately certified by accepted path checks.
+
+\paragraph{Square2CNF.}
+Square2CNF represents conjunctions of two-literal clauses. It is theorem-relevant only under strict conditions: the path must be encoded as explicit 2-CNF and solved using the 2-SAT backend. Candidate caps during search are empirical implementation choices.
+
+\paragraph{Affine.}
+Affine supports XOR-style constraints. It is useful experimentally because it captures parity-like structure. However, Python benchmark theorem certification for Affine remains disabled until the verified GF(2) certificate-checking path is complete.
+
+\paragraph{Best-per-node.}
+Best-per-node is an empirical adaptive strategy. It may give good predictive performance by choosing different families at different nodes, but unrestricted mixed-family trees are not automatically theorem-certified.
+
+\section{Theorem-Claim Boundary}
+
+A major implementation choice is to separate empirical machine-learning performance from theorem-certified explainability. This distinction is essential.
+
+The following claims are safe:
+\begin{itemize}
+    \item The Python implementation is theorem-aligned and tested.
+    \item Fixed Horn and Anti-Horn modes correspond to implemented structural SAT fragments over supported threshold literals.
+    \item Square2CNF can be theorem-certified only when the path is explicitly encoded as 2-CNF and checked by the 2-SAT backend.
+    \item Affine is currently auxiliary in Python benchmark certification until a verified GF(2) certificate checker is implemented.
+    \item Best-per-node is empirical by default.
+\end{itemize}
+
+The following claims must be avoided:
+\begin{itemize}
+    \item that all benchmark rows are theorem-certified;
+    \item that unrestricted mixed best-per-node trees are polynomial or theorem-certified;
+    \item that Affine benchmark rows are theorem-certified in Python without the verified GF(2) certificate path;
+    \item that the Python implementation is fully formally verified or extracted directly from Coq;
+    \item that greedy training search is globally optimal.
+\end{itemize}
+
+This careful boundary is important for scientific correctness. The experiments measure accuracy, compactness, and runtime behavior. The theorem-related claims concern the logical structure of supported explanation paths under explicitly checked conditions.
+
+\section{Experimental Protocol}
+
+\subsection{Datasets}
+
+The experiments use benchmark datasets stored in \texttt{.dl8} format. Each file contains one row per sample. The first column is the class label and the remaining columns are features. The benchmark script discovers files recursively inside the configured data directory.
+
+In the current repository setup, the benchmark pipeline discovers 46 \texttt{.dl8} files recursively. The quick benchmark mode can run on a small subset for smoke testing, while the full benchmark runs across the dataset collection.
+
+\subsection{Compared methods}
+
+The experimental comparison includes:
+\begin{itemize}
+    \item a scikit-learn decision tree baseline with depth 7;
+    \item GSNH-1D, using threshold-like behavior as a simple reference;
+    \item GSNH-Horn;
+    \item GSNH-AntiHorn;
+    \item GSNH-Square2CNF;
+    \item GSNH-ConjUI as an auxiliary/ablation family;
+    \item GSNH-Affine as an auxiliary family;
+    \item GSNH-BestPN as an empirical adaptive strategy.
+\end{itemize}
+
+The core report conclusions focus on the Python implementation. Rust is not used as the main experimental evidence.
+
+\subsection{Metrics}
+
+The main metrics are:
+\begin{itemize}
+    \item \textbf{accuracy}: predictive performance on the held-out test split;
+    \item \textbf{tree size}: number of nodes, used as a compactness measure;
+    \item \textbf{depth}: maximum tree depth allowed during training;
+    \item \textbf{method status}: whether a row is theorem-oriented, auxiliary, or empirical;
+    \item \textbf{certificate metadata}: when explanation-path checking is enabled.
+\end{itemize}
+
+Accuracy alone is not sufficient. A method that obtains similar accuracy with a much smaller tree can be preferable because the model is easier to inspect and explain.
+
+\section{Experimental Results}
+
+\subsection{Average predictive performance}
+
+Table~\ref{tab:accuracy} summarizes the main average accuracy results obtained during the benchmark runs. The values are reported as mean accuracy plus/minus standard deviation over the evaluated datasets.
+
+\begin{table}[h]
+\centering
+\caption{Average accuracy of baseline and GSNH variants.}
+\label{tab:accuracy}
+\begin{tabular}{lcc}
+\toprule
+Method & Depth 5 & Depth 7 \\
+\midrule
+scikit-learn DT & -- & $0.8604 \pm 0.1222$ \\
+GSNH-Horn & $0.8600 \pm 0.1195$ & $0.8636 \pm 0.1204$ \\
+GSNH-AntiHorn & $0.8629 \pm 0.1168$ & $0.8662 \pm 0.1187$ \\
+GSNH-Square2CNF & $0.8440 \pm 0.1121$ & $0.8516 \pm 0.1127$ \\
+GSNH-Affine & $0.8131 \pm 0.1171$ & $0.8134 \pm 0.1174$ \\
+GSNH-BestPN & $0.8593 \pm 0.1206$ & $0.8626 \pm 0.1212$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The results show that Horn and AntiHorn are competitive with the scikit-learn depth-7 baseline. AntiHorn obtains the best reported average accuracy among the fixed GSNH families in this table. BestPN is close to the baseline, but it is an empirical adaptive strategy and should not be interpreted as theorem-certified by default.
+
+\subsection{Tree compactness}
+
+Table~\ref{tab:size} summarizes the average tree sizes observed for the main methods. The scikit-learn depth-7 baseline has a much larger average tree than the fixed GSNH variants.
+
+\begin{table}[h]
+\centering
+\caption{Average tree size comparison. Smaller trees are generally easier to inspect.}
+\label{tab:size}
+\begin{tabular}{lcc}
+\toprule
+Method & Depth 5 average nodes & Depth 7 average nodes \\
+\midrule
+scikit-learn DT depth 7 & -- & $69.7$ \\
+GSNH-Horn & $19.7$ & $28.2$ \\
+GSNH-AntiHorn & $19.6$ & $27.7$ \\
+GSNH-Square2CNF & $18.4$ & $28.3$ \\
+GSNH-Affine & $14.4$ & $16.7$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The compactness results are one of the most important outcomes of the project. Horn and AntiHorn obtain accuracy comparable to the baseline while using substantially fewer nodes. This supports the motivation for multivariate tractable splits: a more expressive split can reduce the number of tree nodes needed to represent useful decision boundaries.
+
+\subsection{Interpretation of the results}
+
+The experimental results support the following conclusions:
+\begin{itemize}
+    \item \textbf{Horn and AntiHorn are the strongest fixed families in the current benchmark.} They are competitive in accuracy and produce compact trees.
+    \item \textbf{AntiHorn performs slightly better on average in the reported runs.} This suggests that the dual-Horn structural bias can match the evaluated datasets well.
+    \item \textbf{Square2CNF is promising but must be interpreted carefully.} Its theorem-certified use requires explicit 2-CNF path encoding and the 2-SAT backend.
+    \item \textbf{Affine produces very compact trees but lower average accuracy.} It may capture useful parity-like structure on some tasks, but it is not the strongest family in the reported average results.
+    \item \textbf{BestPN is useful empirically but not automatically theorem-certified.} It is a practical adaptive method, not a blanket theorem claim.
+\end{itemize}
+
+\section{Discussion}
+
+\subsection{Accuracy versus compactness}
+
+The main trade-off studied in this project is accuracy versus compactness. A standard decision tree can be accurate, but it may require many nodes. A multivariate tree can ask more expressive questions at each node and therefore reduce the size of the model.
+
+The results show that Horn and AntiHorn are good compromises. They preserve tractable logical structure while producing smaller trees and competitive accuracy. This is useful for interpretability, because a smaller tree is easier for a human reader to inspect.
+
+\subsection{Tractability versus training optimality}
+
+It is important to distinguish two questions:
+\begin{enumerate}
+    \item Is the selected predicate/path structure in a tractable logical class?
+    \item Did the greedy learning algorithm find the globally best possible tree?
+\end{enumerate}
+
+This project mainly addresses the first question. The selected classes are designed so that path satisfiability and explanation checks can remain tractable under the required conditions. The second question is much harder. Greedy tree learning is heuristic, and the implementation does not claim global training optimality.
+
+\subsection{Explainability}
+
+A tree prediction is naturally explained by the path from the root to the leaf. In this project, the path contains logical predicates from controlled classes. This makes it possible to reason about explanation paths more rigorously than with arbitrary predicates.
+
+The repository includes support for abductive explanation extraction. The goal is to identify a subset of features sufficient to preserve a prediction. This is valuable because it can reduce a long path to a smaller set of relevant conditions. However, certification must follow the theorem-claim boundary described earlier.
+
+\subsection{Implementation lessons}
+
+The implementation work showed several practical lessons:
+\begin{itemize}
+    \item clear naming is important: legacy SquareCNF terminology was separated from ConjUI and real Square2CNF;
+    \item benchmark scripts must save evidence in reproducible formats such as CSV, JSON, LaTeX tables, and figures;
+    \item theorem-certified rows must be separated from empirical rows;
+    \item optional optimization work should not replace the Python oracle until semantic parity is proven.
+\end{itemize}
+
+\section{Rust Engine as Future Work}
+
+A Rust implementation has been started as an optional optimization path. Its purpose is to improve speed, memory layout, and candidate-search efficiency in the future. The Python implementation remains the reference implementation and the source of the main thesis results.
+
+Recent Rust smoke tests show that the Rust path is promising but not mature enough for the final thesis claims. Some depth-1 rows match the Python oracle exactly and show speedups, but other rows diverge or time out. For example, Horn passed on the tested HTRU and diabetes rows, while ConjUI and AntiHorn diverged on diabetes in a later two-dataset smoke test. Affine also showed a prediction mismatch in a sampled HTRU test, and Square2CNF timed out during Rust fitting on a small HTRU sample.
+
+For this reason, Rust is treated as future work. The correct conclusion is not that ``Rust GSNH is faster''. The correct conclusion is that an optional Rust engine is under development, and that some early results suggest possible performance benefits once semantic parity is fully established.
+
+Future Rust work should include:
+\begin{itemize}
+    \item focused regression tests for every dataset/family mismatch;
+    \item exact comparison of selected predicates, thresholds, branch directions, and leaf labels;
+    \item profiling of Square2CNF candidate enumeration;
+    \item stronger parity tests across all benchmark datasets at depth 1 before testing deeper trees;
+    \item only then, performance benchmarks at larger depths.
+\end{itemize}
+
+\section{Threats to Validity}
+
+\subsection{Dataset coverage}
+
+The benchmark uses a collection of \texttt{.dl8} datasets. This gives useful empirical evidence, but the results may not generalize to all possible classification tasks. Some datasets may favor Horn-like conditions, while others may favor Anti-Horn, box-like, or parity-like predicates.
+
+\subsection{Greedy search}
+
+The tree-building algorithm is greedy. It selects a good split locally at each node but does not guarantee that the final tree is globally optimal. This is a standard limitation of decision-tree learning.
+
+\subsection{Candidate caps and engineering choices}
+
+Some search procedures require practical limits to keep computation feasible. These limits are engineering choices. They should not be confused with theorem claims about the underlying language family.
+
+\subsection{Theorem certification boundary}
+
+Not every empirical row is theorem-certified. The report therefore separates fixed theorem-oriented modes from auxiliary or empirical modes. This is necessary to avoid overclaiming.
+
+\subsection{Rust maturity}
+
+The Rust implementation is still under validation. It is not used as the main experimental basis because Python-vs-Rust parity has not yet been fully established across all families and datasets.
+
+\section{Conclusion}
+
+This work implemented and evaluated multivariate decision trees whose internal predicates are restricted to tractable logical families. The goal was to improve the expressiveness of decision-tree splits while preserving a logical structure suitable for explanation and satisfiability checking.
+
+The Python implementation supports several families, including Horn, Anti-Horn, Square2CNF, ConjUI, Affine, and BestPN. The benchmark pipeline evaluates these variants on \texttt{.dl8} datasets and produces reproducible evidence artifacts. The experimental results show that Horn and AntiHorn are especially promising: they obtain accuracy comparable to a scikit-learn depth-7 decision-tree baseline while using significantly smaller trees.
+
+The main scientific conclusion is that tractable multivariate predicate classes can provide a useful compromise between predictive performance, compactness, and explainability. However, theorem-certified claims must be made carefully. The implementation is theorem-aligned and tested, but it is not fully formally verified, and empirical benchmark rows are not automatically theorem-certified.
+
+Rust optimization work is ongoing and should be presented as future work. The final report should focus on the Python implementation and experiments, because that is the validated reference implementation for the thesis.
+
+\appendix
+
+\section{Suggested Commands for Reproducing the Python Benchmark}
+
+The following commands summarize the intended benchmark workflow. They should be adapted to the final environment and data location.
+
+\begin{verbatim}
+python scripts/benchmark_dl8_languages_updated.py \
+  --data-dir data \
+  --runs 10 \
+  --depths 5 7 \
+  --axp-samples 50 \
+  --output-dir experiment_artifacts/language_benchmark_full
+\end{verbatim}
+
+For a quick smoke test:
+
+\begin{verbatim}
+python scripts/benchmark_dl8_languages_updated.py \
+  --quick \
+  --output-dir experiment_artifacts/language_benchmark_quick
+\end{verbatim}
+
+\section{Suggested Commands for Experimental Rust Smoke Tests}
+
+Rust is not part of the main thesis evidence, but the following commands are useful for future validation.
+
+\begin{verbatim}
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 \
+  maturin develop --manifest-path rust_gsnh/Cargo.toml \
+  --features python,pyo3-extension
+
+PYTHONUNBUFFERED=1 python -u scripts/benchmark_rust_gsnh_smoke.py \
+  --data-dir data \
+  --max-datasets 1 \
+  --max-rows 300 \
+  --depth 1 \
+  --families Horn \
+  --output-dir experiment_artifacts/rust_gsnh_smoke_horn
+\end{verbatim}
+
+\section{Terminology Summary}
+
+\begin{description}
+    \item[Univariate split] A decision-tree test using one feature and one threshold.
+    \item[Multivariate split] A decision-tree test involving several literals or features.
+    \item[Threshold literal] A condition such as $x_f \geq t$ or $x_f < t$.
+    \item[Horn] A clause with at most one positive literal.
+    \item[Anti-Horn] A clause with at most one negative literal.
+    \item[ConjUI] A conjunction of unary interval-style literals; useful as a box-like auxiliary family.
+    \item[Square2CNF] A conjunction of two-literal disjunctive clauses, checked by 2-SAT when theorem-certified.
+    \item[Affine] XOR-style constraints over GF(2), currently auxiliary in Python benchmark certification.
+    \item[AXp] Abductive explanation: a subset of features sufficient to preserve a prediction.
+    \item[Theorem-certified row] A benchmark or explanation row that satisfies the strict certificate conditions.
+    \item[Empirical row] A row used for performance comparison but not claimed as theorem-certified.
+\end{description}
+
+\begin{thebibliography}{9}
+
+\bibitem{breiman1984cart}
+L. Breiman, J. Friedman, R. Olshen, and C. Stone.
+\newblock \emph{Classification and Regression Trees}.
+\newblock Wadsworth, 1984.
+
+\bibitem{schaefer1978complexity}
+T. J. Schaefer.
+\newblock The complexity of satisfiability problems.
+\newblock \emph{Proceedings of STOC}, 1978.
+
+\bibitem{mdt_explainability}
+Tractable explaining of multivariate decision trees.
+\newblock Journal/preprint material used as the theoretical reference for this Master Thesis.
+
+\bibitem{sklearn}
+F. Pedregosa et al.
+\newblock Scikit-learn: Machine Learning in Python.
+\newblock \emph{Journal of Machine Learning Research}, 2011.
+
+\end{thebibliography}
+
+\end{document}
