@@ -38,6 +38,8 @@ from gsnh_mdt.tree.explainer import (
     _enumerate_paths, _is_sat_path,
 )
 from gsnh_mdt.types import LanguageFamily, LiteralPolarity
+from gsnh_mdt.tree.builder import ExpertGSNHTree
+from gsnh_mdt.tree.stopping import StoppingCriteria
 
 
 def make_lit(f, t, is_ge):
@@ -318,6 +320,109 @@ class TestBestPerNodeTheorem:
         except NonTheoremPathError:
             pass  # Expected: rejected as non-theorem
 
+
+    def test_bestpn_does_not_enable_affine_by_default(self, monkeypatch):
+        from gsnh_mdt.tree import builder as builder_module
+
+        def fail_affine(*args, **kwargs):
+            raise AssertionError("BEST_PER_NODE should not call affine search by default")
+
+        monkeypatch.setattr(builder_module, "fast_affine_2d", fail_affine)
+        X = np.array([
+            [0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0],
+            [0.2, 0.1], [0.2, 0.9], [0.8, 0.1], [0.8, 0.9],
+        ])
+        y = np.array([0, 1, 1, 0, 0, 1, 1, 0])
+        tree = ExpertGSNHTree(
+            stopping_criteria=StoppingCriteria(max_depth=1, min_samples_leaf=1, min_samples_split=2),
+            language=LanguageFamily.BEST_PER_NODE,
+            search_1d=False, search_2d=True, search_3d=False,
+            n_bins=4, top_k_features=2, random_state=0,
+        )
+        assert tree.allow_affine_in_bestpn is False
+        tree.fit(X, y)
+
+    def test_affine_not_theorem_certified_without_gf2_certificate(self):
+        pred = GSNHPredicate(
+            literals=(make_lit(0, 0.5, True), make_lit(1, 0.5, True)),
+            information_gain=0.1, language_family=LanguageFamily.AFFINE, is_xor=True,
+        )
+
+        class MockTree:
+            explainer_backend_ = ""
+            theorem_strict = True
+            axp_metadata_ = []
+            n_bins = 2
+            binner_ = None
+
+        tree = MockTree()
+        result = _is_sat_path(tree, [(pred, True)], np.array([1.0, 0.0]), set())
+        assert isinstance(result, bool)
+        meta = tree.axp_metadata_[-1]
+        assert meta.axp_backend == "affine"
+        assert meta.path_certificate == "affine_unverified"
+        assert meta.theorem_certified is False
+        assert meta.theorem_mode_used is True
+
+    def test_affine_theorem_mode_rejects_non_boolean_domain(self):
+        pred = GSNHPredicate(
+            literals=(make_lit(0, 0.25, True), make_lit(1, 0.75, True), make_lit(2, 0.5, True)),
+            information_gain=0.1, language_family=LanguageFamily.AFFINE, is_xor=True,
+        )
+
+        class MockTree:
+            explainer_backend_ = ""
+            theorem_strict = True
+            axp_metadata_ = []
+            n_bins = 4
+            binner_ = None
+
+        tree = MockTree()
+        with pytest.raises(NonTheoremPathError, match="Boolean-compatible"):
+            _is_sat_path(tree, [(pred, True)], np.array([1.0, 0.0, 1.0]), set())
+        meta = tree.axp_metadata_[-1]
+        assert meta.axp_backend == "affine"
+        assert meta.theorem_certified is False
+        assert meta.theorem_mode_used is True
+
+    def test_unsupported_literals_rejected_not_skipped_in_theorem_mode(self):
+        from gsnh_mdt.literals.compare import CompareLiteral
+        from gsnh_mdt.types import CompareOp
+
+        pred = GSNHPredicate(
+            literals=(CompareLiteral(0, 1, CompareOp.LE),),
+            information_gain=0.1, language_family=LanguageFamily.HORN,
+        )
+
+        class MockTree:
+            explainer_backend_ = ""
+            theorem_strict = True
+            axp_metadata_ = []
+
+        tree = MockTree()
+        with pytest.raises(NonTheoremPathError, match="Unsupported"):
+            _is_sat_path(tree, [(pred, True)], np.array([0.0, 0.0]), set())
+        assert tree.axp_metadata_[-1].axp_backend == "rejected_non_theorem"
+        assert "Unsupported" in tree.axp_metadata_[-1].reason
+
+    def test_unsupported_literals_rejected_not_skipped_in_empirical_numeric_path(self):
+        from gsnh_mdt.literals.compare import CompareLiteral
+        from gsnh_mdt.types import CompareOp
+
+        pred = GSNHPredicate(
+            literals=(CompareLiteral(0, 1, CompareOp.LE), make_lit(2, 0.5, True)),
+            information_gain=0.1, language_family=LanguageFamily.CONJ_UI,
+        )
+
+        class MockTree:
+            explainer_backend_ = ""
+            theorem_strict = False
+            axp_metadata_ = []
+
+        tree = MockTree()
+        with pytest.raises(NotImplementedError, match="cannot be ignored"):
+            _is_sat_path(tree, [(pred, True)], np.array([0.0, 0.0, 1.0]), set())
+
     def test_mixed_bestpn_with_horn_path_certificate_accepted(self):
         # Pure Horn path → should be accepted
         path_edges = [
@@ -378,74 +483,64 @@ class TestSquare2CNFTheorem:
         for c in cnf:
             assert len(c) <= 2
 
-    def test_square2cnf_false_branch_uses_auxiliary_2cnf(self):
+    def test_square2cnf_false_branch_exact_complement_or_auxiliary_not_overclaimed(self):
         pred = self._make_sq2_pred()
         path_edges = [(pred, False)]
-        # False branch: encoded using auxiliary variable
         enc, cnf = build_ordered_selected_path_cnf(
             path_edges, np.array([0.0]*4), set()
         )
-        path_clauses = [c for c in cnf if len(c) <= 2]
-        # All clauses must be length <= 2
+
         for c in cnf:
             assert len(c) <= 2
-            
-        # Check if auxiliary atom exists in encoding
+
         has_aux = any(
             isinstance(atom, tuple) and atom[0] == "square2cnf_false_aux"
             for atom in enc.var_to_atom
         )
-        assert has_aux is True
+        assert has_aux is False
+        assert len(cnf) == 4
 
-    def test_square2cnf_false_branch_aux_encoding_equivalent_by_bruteforce(self):
+        c1, c2 = pred.clauses
+        l1, l2 = c1
+        l3, l4 = c2
+        expected = [
+            [negate_encoded_lit(encode_literal(l1, enc)), negate_encoded_lit(encode_literal(l3, enc))],
+            [negate_encoded_lit(encode_literal(l1, enc)), negate_encoded_lit(encode_literal(l4, enc))],
+            [negate_encoded_lit(encode_literal(l2, enc)), negate_encoded_lit(encode_literal(l3, enc))],
+            [negate_encoded_lit(encode_literal(l2, enc)), negate_encoded_lit(encode_literal(l4, enc))],
+        ]
+        assert cnf == expected
+
+    def test_square2cnf_false_branch_exact_complement_equivalent_by_bruteforce(self):
         pred = self._make_sq2_pred()
         path_edges = [(pred, False)]
         enc, cnf = build_ordered_selected_path_cnf(
             path_edges, np.array([0.0]*4), set()
         )
-        
-        # We find the variables for l1, l2, l3, l4 and the aux variable
+
         c1, c2 = pred.clauses
         l1, l2 = c1
         l3, l4 = c2
-        
+
         var_l1, sign1 = encode_literal(l1, enc)
         var_l2, sign2 = encode_literal(l2, enc)
         var_l3, sign3 = encode_literal(l3, enc)
         var_l4, sign4 = encode_literal(l4, enc)
-        
-        aux_idx = next(i for i, atom in enumerate(enc.var_to_atom) if isinstance(atom, tuple) and atom[0] == "square2cnf_false_aux")
-        
-        # Test all 16 assignments of the underlying threshold variables
+
         import itertools
         for v1, v2, v3, v4 in itertools.product([False, True], repeat=4):
-            # literal is true if var value matches its polarity sign
             l1_val = (v1 == sign1)
             l2_val = (v2 == sign2)
             l3_val = (v3 == sign3)
             l4_val = (v4 == sign4)
-            
-            # Target semantics: not((l1 or l2) and (l3 or l4))
             target_sat = not((l1_val or l2_val) and (l3_val or l4_val))
-            
-            # Is the encoded false-branch CNF satisfiable over aux?
-            # Evaluate the path clauses
-            path_clauses_only = [c for c in cnf if aux_idx in [abs(lit[0]) for lit in c]]
-            
-            sat_over_aux = False
-            for s in [False, True]:
-                assignment = {var_l1: v1, var_l2: v2, var_l3: v3, var_l4: v4, aux_idx: s}
-                clause_sat = True
-                for clause in path_clauses_only:
-                    # check if clause is satisfied under `assignment`
-                    if not any((assignment.get(v, False) if sign else not assignment.get(v, False)) for v, sign in clause):
-                        clause_sat = False
-                        break
-                if clause_sat:
-                    sat_over_aux = True
-                    break
-                    
-            assert sat_over_aux == target_sat
+
+            assignment = {var_l1: v1, var_l2: v2, var_l3: v3, var_l4: v4}
+            encoded_sat = all(
+                any((assignment[v] if sign else not assignment[v]) for v, sign in clause)
+                for clause in cnf
+            )
+            assert encoded_sat == target_sat
 
     def test_square2cnf_case_split_marked_non_theorem(self):
         # We no longer mark it as case_split if it's explicitly Square2CNF,

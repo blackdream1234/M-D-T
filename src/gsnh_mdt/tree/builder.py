@@ -97,6 +97,7 @@ class ExpertGSNHTree:
                  prune: bool = False,
                  prune_alpha: float = 0.01,
                  theorem_strict: bool = False,
+                 allow_affine_in_bestpn: bool = False,
                  random_state: int = 42):
 
         self.stopping = stopping_criteria or StoppingCriteria()
@@ -124,6 +125,7 @@ class ExpertGSNHTree:
         self.prune = prune
         self.prune_alpha = prune_alpha
         self.theorem_strict = theorem_strict
+        self.allow_affine_in_bestpn = allow_affine_in_bestpn
         self.random_state = random_state
 
         self.root_ = None
@@ -144,8 +146,8 @@ class ExpertGSNHTree:
 
         This is the preferred way to create a tree with structured configuration.
         The config is converted into the exact same constructor keyword arguments
-        via ``config.to_constructor_kwargs()``. The legacy 22-param constructor
-        is called unchanged — no default reinterpretation, no implicit merging.
+        via ``config.to_constructor_kwargs()``. The constructor remains explicit —
+        no default reinterpretation, no implicit merging.
 
         Example::
 
@@ -243,7 +245,7 @@ class ExpertGSNHTree:
         # Post-pruning with held-out validation
         if self.prune and X_val is not None and self.root_ is not None:
             pruner = CostComplexityPruner(alpha=self.prune_alpha)
-            pruner.prune(self.root_, X_val, y_val)
+            self.root_ = pruner.prune(self.root_, X_val, y_val)
 
         # Normalize importances
         total = self.feature_importances_.sum()
@@ -663,7 +665,9 @@ class ExpertGSNHTree:
         # CONJ_UI does NOT trigger Horn/AntiHorn search (they have different semantics).
         search_horn = language in (LanguageFamily.ANY, LanguageFamily.HORN, LanguageFamily.BEST_PER_NODE)
         search_antihorn = language in (LanguageFamily.ANY, LanguageFamily.ANTI_HORN, LanguageFamily.BEST_PER_NODE)
-        search_affine = language in (LanguageFamily.ANY, LanguageFamily.AFFINE, LanguageFamily.BEST_PER_NODE)
+        search_affine = language in (LanguageFamily.ANY, LanguageFamily.AFFINE) or (
+            language == LanguageFamily.BEST_PER_NODE and self.allow_affine_in_bestpn
+        )
         search_conj_ui = language in (LanguageFamily.ANY, LanguageFamily.CONJ_UI, LanguageFamily.BEST_PER_NODE)
         do_search_square_2cnf = language in (LanguageFamily.SQUARE_2CNF,)
 
@@ -690,7 +694,7 @@ class ExpertGSNHTree:
                     )
 
                 if gain > best_gain and gain > 0:
-                    if language == LanguageFamily.ANY:
+                    if language in (LanguageFamily.ANY, LanguageFamily.BEST_PER_NODE):
                         lang = LanguageFamily.HORN if search_horn else LanguageFamily.ANTI_HORN
                     else:
                         lang = language
@@ -747,7 +751,7 @@ class ExpertGSNHTree:
                                 
                             if gain > best_gain and gain > 0:
                                 lit = CompareLiteral(fi, fj, op)
-                                lang = lang_cand if language == LanguageFamily.ANY else language
+                                lang = lang_cand if language in (LanguageFamily.ANY, LanguageFamily.BEST_PER_NODE) else language
                                 pred = GSNHPredicate((lit,), gain, lang)
                                 best_gain = gain
                                 best_pred = pred
@@ -783,7 +787,7 @@ class ExpertGSNHTree:
                             n_samples=n_samples, n_classes=self.n_classes_
                         )
                     if gain > best_gain and gain > 0:
-                        lang = LanguageFamily.HORN if language == LanguageFamily.ANY else language
+                        lang = LanguageFamily.HORN if language in (LanguageFamily.ANY, LanguageFamily.BEST_PER_NODE) else language
                         pred = self._build_pred_2d(
                             (fi, fj), result, gain, lang
                         )
@@ -809,7 +813,7 @@ class ExpertGSNHTree:
                             n_samples=n_samples, n_classes=self.n_classes_
                         )
                     if gain > best_gain and gain > 0:
-                        lang = LanguageFamily.ANTI_HORN if language == LanguageFamily.ANY else language
+                        lang = LanguageFamily.ANTI_HORN if language in (LanguageFamily.ANY, LanguageFamily.BEST_PER_NODE) else language
                         pred = self._build_pred_2d(
                             (fi, fj), result, gain, lang
                         )
@@ -865,7 +869,7 @@ class ExpertGSNHTree:
                                 n_samples=n_samples, n_classes=self.n_classes_
                             )
                         if gain > best_gain and gain > 0:
-                            lang = LanguageFamily.AFFINE if language == LanguageFamily.ANY else language
+                            lang = LanguageFamily.AFFINE if language in (LanguageFamily.ANY, LanguageFamily.BEST_PER_NODE) else language
                             pred = self._build_pred_affine_2d(
                                 (fi, fj), result, gain
                             )
@@ -1022,7 +1026,7 @@ class ExpertGSNHTree:
                             n_samples=n_samples, n_classes=self.n_classes_
                         )
                     if gain > best_gain and gain > 0:
-                        lang = LanguageFamily.HORN if language == LanguageFamily.ANY else language
+                        lang = LanguageFamily.HORN if language in (LanguageFamily.ANY, LanguageFamily.BEST_PER_NODE) else language
                         pred = self._build_pred_3d(
                             (fi, fj, fk), result, gain, lang
                         )
@@ -1048,7 +1052,7 @@ class ExpertGSNHTree:
                             n_samples=n_samples, n_classes=self.n_classes_
                         )
                     if gain > best_gain and gain > 0:
-                        lang = LanguageFamily.ANTI_HORN if language == LanguageFamily.ANY else language
+                        lang = LanguageFamily.ANTI_HORN if language in (LanguageFamily.ANY, LanguageFamily.BEST_PER_NODE) else language
                         pred = self._build_pred_3d(
                             (fi, fj, fk), result, gain, lang
                         )
@@ -1106,7 +1110,7 @@ class ExpertGSNHTree:
                                 n_samples=n_samples, n_classes=self.n_classes_
                             )
                         if gain > best_gain and gain > 0:
-                            lang = LanguageFamily.AFFINE if language == LanguageFamily.ANY else language
+                            lang = LanguageFamily.AFFINE if language in (LanguageFamily.ANY, LanguageFamily.BEST_PER_NODE) else language
                             pred = self._build_pred_affine_3d(
                                 (fi, fj, fk), result, gain
                             )
