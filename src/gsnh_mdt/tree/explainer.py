@@ -246,7 +246,7 @@ def _is_sat_path(tree, path_edges, x, S):
     # Determine homogeneous family on path, ignoring leaves/affine
     fams = {pred.language_family for pred, _ in path_edges if not pred.is_xor}
 
-    if fams == {LanguageFamily.HORN}:
+    if not has_xor and fams == {LanguageFamily.HORN}:
         tree.explainer_backend_ = "structural_horn"
         metadata.axp_backend = "structural_horn"
         metadata.theorem_certified = True
@@ -254,7 +254,7 @@ def _is_sat_path(tree, path_edges, x, S):
         _record_metadata(tree, metadata)
         return _path_sat_structural_horn(path_edges, x, S, LanguageFamily.HORN)
 
-    if fams == {LanguageFamily.ANTI_HORN}:
+    if not has_xor and fams == {LanguageFamily.ANTI_HORN}:
         tree.explainer_backend_ = "structural_antihorn"
         metadata.axp_backend = "structural_antihorn"
         metadata.theorem_certified = True

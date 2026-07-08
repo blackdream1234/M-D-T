@@ -245,7 +245,7 @@ class ExpertGSNHTree:
         # Post-pruning with held-out validation
         if self.prune and X_val is not None and self.root_ is not None:
             pruner = CostComplexityPruner(alpha=self.prune_alpha)
-            pruner.prune(self.root_, X_val, y_val)
+            self.root_ = pruner.prune(self.root_, X_val, y_val)
 
         # Normalize importances
         total = self.feature_importances_.sum()
